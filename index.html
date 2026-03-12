@@ -515,8 +515,8 @@ const PLAYER_PARTNER = {
 };
 const CPU_PARTNER = {
   name:'深淵王リゼル', civ:'水', type:'monster', en:5, atk:8, life:20,
-  keywords:['前衛','封印'], tribe:'マリナー',
-  effect:'【前衛】【封印】場にいる間、相手全体のATK-2\n召喚条件:自分の墓地に6枚以上\n登場時:相手モンスター3体をバウンス＋5枚ドロー\n常在:自分がダメージを受けるたびに2枚ドロー',
+  keywords:['封印'], tribe:'マリナー',
+  effect:'【封印】場にいる間、相手全体のATK-2\n召喚条件:自分の手札が6枚以上\n登場時:相手モンスター3体をバウンス＋5枚ドロー\n常在:自分がダメージを受けるたびに2枚ドロー',
   emoji:'👑', isPartner:true,
   summonCondition:'自分の手札が6枚以上',
   onSummon: (who)=>{ bounceNTargets('player', 3, '深淵王リゼル'); drawCards('cpu', 5, '深淵王リゼル'); }
