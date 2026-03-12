@@ -1266,6 +1266,11 @@ async function summonPartner(who) {
   G[who].manaUsed += p.en;
   p.onField=true; p.justSummoned=true; p.canAttackThisTurn=p.keywords.includes('突撃');
   p.hasAttacked=false; p.curLife=p.maxLife; p.tempAtk=0;
+  // 自分のシールドが0なら召喚時に即前衛付与
+  if(G[who].shields.length===0 && !p.keywords.includes('前衛')) {
+    p.keywords = ['前衛', ...p.keywords];
+    log(`【${p.name}】シールドなし召喚→前衛として立ちはだかる！`, 'shield');
+  }
   log(`${who==='player'?'プレイヤー':'CPU'}: ✨ パートナー【${p.name}】降臨！！`, who==='player'?'player':'cpu');
   showBanner(`👑 ${p.name} 降臨！`, '#ffd700', 1600);
   if(p.onSummon) await Promise.resolve(p.onSummon(who));
@@ -1318,21 +1323,16 @@ async function executeAttack(target, type) {
     attacker.hasAttacked=true;
   } else if(type==='direct') {
     const hasVanguard = G.cpu.field.some(c=>c.keywords.includes('前衛'))||(G.cpu.partner.onField&&G.cpu.partner.keywords.includes('前衛'));
-    if(hasVanguard){ log('前衛持ちがいるため直接攻撃できません','system'); return; }
-    const cpuPartnerGuard = G.cpu.shields.length===0 && G.cpu.partner.onField;
-    if(cpuPartnerGuard){
-      log(`シールドがない！ しかし【${G.cpu.partner.name}】が守護！ パートナーを攻撃してください`, 'system');
-      return;
-    }
-    log(`【${attacker.name}】がCPUに直接攻撃！`,'player');
+    if(hasVanguard){ log('前衛持ちがいるため直接攻撃できません（前衛を先に倒してください）','system'); return; }
     if(G.cpu.shields.length===0) {
-      // シールドなし・パートナーなし→トドメ
+      // シールドなし・前衛なし→トドメ
       log(`CPUへの直撃！！ ゲーム終了！`,'win');
       attacker.hasAttacked=true;
       cancelAction();
       endGame('player');
       return;
     }
+    log(`【${attacker.name}】がCPUに直接攻撃！`,'player');
     await breakShield('cpu', attacker.name);
     attacker.hasAttacked=true;
   }
@@ -1367,11 +1367,17 @@ async function destroyMonster(who, card, source) {
   // 破壊アニメ再生
   await animateDestroy(card);
   showBanner(`💀 ${card.name} 破壊！`, '#cc2244', 800);
+
+  // パートナーかどうかを先に判定
+  const isPartnerCard = G[who].partner.onField && G[who].partner.id===card.id;
+
+  // フィールドから除去
   G[who].field = G[who].field.filter(c=>c.id!==card.id);
-  if(G[who].partner.onField && G[who].partner.id===card.id) {
+
+  if(isPartnerCard) {
     G[who].partner.onField=false;
     G[who].partner.available=false;
-    log(`【${card.name}】破壊。パートナーゾーンに帰還（再召喚不可）`,'damage');
+    log(`【${card.name}】破壊。パートナー消滅（再召喚不可）`,'damage');
     // シールドが0の状態でパートナーが破壊された→負け
     if(G[who].shields.length===0 && !G.gameOver) {
       log(`シールドなし＋パートナー破壊！ ${who==='player'?'プレイヤー':'CPU'}の敗北！`,'win');
@@ -1379,7 +1385,7 @@ async function destroyMonster(who, card, source) {
     }
     return;
   }
-  // 不死チェック
+  // 不死チェック（パートナーには適用しない）
   if(card.keywords && card.keywords.includes('不死') && !card.revivedNext) {
     card.revivedNext=true;
     card.curLife=card.maxLife;
@@ -1421,7 +1427,13 @@ async function breakShield(who, source) {
   showBanner('💥 シールドブレイク！', who==='cpu'?'#ff6633':'#66aaff', 1000);
   if(who==='cpu') G.player.cpuShieldsBroken = (G.player.cpuShieldsBroken||0) + 1;
   if(state.shields.length===0 && state.partner.onField) {
-    log(`💀 CPUのシールドがなくなった！ここからパートナーを倒せば勝利！`, 'system');
+    // パートナーに前衛を付与（まだ持っていない場合）
+    if(!state.partner.keywords.includes('前衛')) {
+      state.partner.keywords = ['前衛', ...state.partner.keywords];
+    }
+    const label = who==='cpu' ? 'CPUのシールドがなくなった！【'+state.partner.name+'】を倒せば勝利！' : 'シールドがなくなった！【'+state.partner.name+'】が最後の砦！';
+    log(`🛡 ${label}`, 'system');
+    showBanner(`🛡 ${state.partner.name} 守護！`, who==='cpu'?'#ff6633':'#66aaff', 1500);
   }
   if(shield.keywords&&shield.keywords.includes('鼓動')) {
     await triggerSTrigger(who, shield);
@@ -1730,9 +1742,13 @@ async function cpuAttackWith(attacker) {
   while(G.triggerLock) { await new Promise(r=>setTimeout(r,200)); }
   if(G.gameOver) return;
   const atk=getEffectiveAtk(attacker,'cpu');
-  // 前衛チェック（パートナーを除いた通常モンスターのみ）
-  const pmons = G.player.field.slice(); // パートナーは別扱い
-  const vgs=pmons.filter(c=>c.keywords.includes('前衛'));
+  const pmons = G.player.field.slice();
+  // パートナーが前衛持ち（シールド0で付与済み）なら前衛リストに含める
+  const partnerVg = G.player.partner.onField && G.player.partner.keywords.includes('前衛') ? G.player.partner : null;
+  const vgs = [
+    ...pmons.filter(c=>c.keywords.includes('前衛')),
+    ...(partnerVg ? [partnerVg] : [])
+  ];
 
   if(vgs.length>0) {
     const target=vgs.reduce((a,b)=>a.curLife<=b.curLife?a:b);
@@ -1754,6 +1770,14 @@ async function cpuAttackWith(attacker) {
       log(`CPU: 【${attacker.name}】がシールドに直接攻撃！`,'cpu');
       await breakShield('player',attacker.name);
     }
+  } else if(partnerVg) {
+    // 通常モンスターなし・パートナーが前衛守護中→パートナーに攻撃
+    const target = partnerVg;
+    const defAtk = getEffectiveAtk(target,'player');
+    log(`CPU: 【${attacker.name}】ATK:${atk} ⚔ 【${target.name}】（守護）ATK:${defAtk}`,'cpu');
+    await dealDmgToMon('player',target,atk,attacker.name);
+    const dead=target.curLife<=0;
+    if(!dead&&!G.gameOver) await dealDmgToMon('cpu',attacker,defAtk,`${target.name}の反撃`);
   } else {
     // シールドなし・モンスターなし・パートナーなし→トドメ
     if(G.player.shields.length===0) {
