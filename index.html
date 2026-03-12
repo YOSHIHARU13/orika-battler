@@ -73,6 +73,14 @@ body{background:var(--bg-dark);color:var(--text);font-family:'Noto Sans JP',sans
 @keyframes summon-pop{from{transform:scale(0.5) translateY(20px);opacity:0;}to{transform:scale(1) translateY(0);opacity:1;}}
 @keyframes chain-flash{0%{box-shadow:0 0 30px #ffdd00,0 0 60px #ffdd00;}100%{box-shadow:inherit;}}
 @keyframes pulse-target{from{box-shadow:0 0 8px rgba(255,51,85,0.4);}to{box-shadow:0 0 20px rgba(255,51,85,0.9);}}
+@keyframes damage-flash{0%{filter:brightness(3) saturate(0);}60%{filter:brightness(2) saturate(0);}100%{filter:none;}}
+@keyframes destroy-anim{0%{transform:scale(1);opacity:1;}40%{transform:scale(1.3) rotate(-8deg);filter:brightness(3);}100%{transform:scale(0) rotate(20deg);opacity:0;}}
+@keyframes float-dmg{0%{opacity:1;transform:translateY(0);}100%{opacity:0;transform:translateY(-48px);}}
+@keyframes spell-cast{0%{box-shadow:0 0 0 0 rgba(255,215,0,0.9);}100%{box-shadow:0 0 40px 20px rgba(255,215,0,0);}}
+.monster-card.damage-hit{animation:damage-flash 0.4s ease-out;}
+.monster-card.being-destroyed{animation:destroy-anim 0.5s ease-in forwards;}
+.float-damage{position:fixed;font-size:20px;font-weight:900;color:#ff4455;text-shadow:0 0 8px #ff0000,0 2px 0 #000;
+  pointer-events:none;animation:float-dmg 0.9s ease-out forwards;z-index:9999;}}
 
 .card-en{position:absolute;top:3px;right:3px;background:#ffd700;color:#000;border-radius:50%;
   width:16px;height:16px;font-size:9px;font-weight:900;display:flex;align-items:center;justify-content:center;}
@@ -1020,6 +1028,9 @@ async function summonMonster(who, card, handIndex, free=false) {
     keywords:[...card.keywords]};
   state.field.push(fc);
   log(`${who==='player'?'プレイヤー':'CPU'}: 【${card.name}】召喚！`+(accel>0?' (加速-1EN)':''), who==='player'?'player':'cpu');
+  showBanner(`${fc.emoji} ${fc.name} 召喚！`, who==='player'?'#ff4500':'#00bfff', 900);
+  render();
+  animateSummon(fc);
   if(G.gameOver) return;
   if(fc.onSummon) await fc.onSummon(who);
   if(G.gameOver) return;
@@ -1039,7 +1050,10 @@ async function castSpell(who, card, handIndex) {
   state.manaUsed += card.en;
   state.grave.push(card);
   log(`${who==='player'?'プレイヤー':'CPU'}: スペル【${card.name}】発動！`, who==='player'?'player':'cpu');
+  render();
   await executeSpellEffect(who, card);
+  G.triggerLock = false;
+  render();
   if(who==='player') checkAutoAdvance();
 }
 
@@ -1047,9 +1061,11 @@ async function executeSpellEffect(who, card) {
   const opp = who==='player'?'cpu':'player';
   switch(card.spellType){
     case 'damage_one':
-      damageOneTarget2(who, opp, card.value, card.name);
+      await damageOneTarget2(who, opp, card.value, card.name);
       break;
-    case 'damage_all': spreadDamage(opp,card.value,card.name); break;
+    case 'damage_all':
+      await spreadDamage(opp, card.value, card.name);
+      break;
     case 'bounce_one':
       bounceOneTarget(opp, who, card.name);
       break;
@@ -1071,28 +1087,49 @@ async function executeSpellEffect(who, card) {
       bounceNTargets(opp, 3, card.name);
       break;
     case 'fire_storm':
-      spreadDamage(opp, 4, card.name);
-      await breakShield(opp, card.name);
+      await spreadDamage(opp, 4, card.name);
+      if(!G.gameOver) await breakShield(opp, card.name);
       break;
     case 'heal_one':
-      if(who==='player'){ showCardSelect('回復対象',allPlayerMonsters(),t=>{t.curLife=Math.min(t.maxLife,t.curLife+card.value);log(`${card.name}: ${t.name}のLIFE+${card.value}`,'effect');render();});}
-      else { const t=G.cpu.field[0]||(G.cpu.partner.onField?G.cpu.partner:null); if(t){t.curLife=Math.min(t.maxLife,t.curLife+card.value);log(`${card.name}: ${t.name}のLIFE+${card.value}`,'effect');} }
+      if(who==='player'){
+        const ht = allPlayerMonsters();
+        await new Promise(resolve=>showCardSelect('回復対象',ht,t=>{
+          if(t){t.curLife=Math.min(t.maxLife,t.curLife+card.value);log(`${card.name}: ${t.name}のLIFE+${card.value}`,'effect');}
+          resolve();
+        }));
+      } else {
+        const t=G.cpu.field[0]||(G.cpu.partner.onField?G.cpu.partner:null);
+        if(t){t.curLife=Math.min(t.maxLife,t.curLife+card.value);log(`${card.name}: ${t.name}のLIFE+${card.value}`,'effect');}
+      }
       break;
     case 'destroy_one':
       if(who==='player'){
         const dTargets = allCpuMonsters().filter(c=>!c.isPartner);
-        if(!dTargets.length){ log(`${card.name}: 破壊対象なし（パートナーは耐性あり）`,'system'); break; }
-        showCardSelect('破壊対象',dTargets,t=>{destroyMonster('cpu',t,card.name);render();});
+        if(!dTargets.length){ log(`${card.name}: 破壊対象なし`,'system'); break; }
+        await new Promise(resolve=>showCardSelect('破壊対象',dTargets,async t=>{
+          if(t) await destroyMonster('cpu',t,card.name);
+          resolve();
+        }));
       } else {
-        const t=pickTarget(opp); if(t) destroyMonster(opp,t,card.name);
+        const t=pickTarget(opp); if(t) await destroyMonster(opp,t,card.name);
       }
       break;
-    case 'draw': drawCards(who,card.value,card.name); break;
+    case 'draw':
+      drawCards(who, card.value, card.name);
+      break;
     case 'buff_atk':
-      if(who==='player'){ showCardSelect('強化対象',allPlayerMonsters(),t=>{t.tempAtk=(t.tempAtk||0)+card.value;log(`${card.name}: ${t.name}のATK+${card.value}`,'effect');render();});}
-      else { const t=G.cpu.field[0]; if(t){t.tempAtk=(t.tempAtk||0)+card.value;log(`${card.name}: ${t.name}のATK+${card.value}`,'effect');} }
+      if(who==='player'){
+        await new Promise(resolve=>showCardSelect('強化対象',allPlayerMonsters(),t=>{
+          if(t){t.tempAtk=(t.tempAtk||0)+card.value;log(`${card.name}: ${t.name}のATK+${card.value}`,'effect');}
+          resolve();
+        }));
+      } else {
+        const t=G.cpu.field[0];
+        if(t){t.tempAtk=(t.tempAtk||0)+card.value;log(`${card.name}: ${t.name}のATK+${card.value}`,'effect');}
+      }
       break;
   }
+  render();
 }
 
 // =====================================================
@@ -1106,7 +1143,7 @@ async function triggerChain(who, card) {
   G[who].deck.pop();
   if(top.type==='monster' && top.civ===card.civ) {
     await new Promise(r=>showReveal(top, true, '連鎖ヒット！ 追加召喚！', r, card, who));
-    // 連鎖は1回のみ（free=true, chainBlock=trueで連鎖を引き継がない）
+    await new Promise(r=>setTimeout(r,200));
     const savedKw = top.keywords;
     top.keywords = top.keywords.filter(k=>k!=='連鎖'&&k!=='統率'&&k!=='天啓');
     await summonMonster(who, top, null, true);
@@ -1127,6 +1164,7 @@ async function triggerToiitsu(who, card) {
   G[who].deck.pop();
   if(sameTribe) {
     await new Promise(r=>showReveal(top, true, `${top.tribe}族ヒット！ 追加召喚！`, r, card, who));
+    await new Promise(r=>setTimeout(r,200));
     const savedKw = top.keywords;
     top.keywords = top.keywords.filter(k=>k!=='連鎖'&&k!=='統率'&&k!=='天啓');
     await summonMonster(who, top, null, true);
@@ -1309,8 +1347,10 @@ async function executeAttack(target, type) {
 // DAMAGE / DESTROY / BOUNCE
 // =====================================================
 async function dealDmgToMon(who, card, dmg, source) {
+  flashDamage(card, dmg);
   card.curLife -= dmg;
   log(`${source} → ${card.name}に${dmg}ダメージ（残LIFE:${card.curLife}）`,'damage');
+  render();
   // 激昂：受けたダメージ分ATK永続上昇
   if(card.keywords && card.keywords.includes('激昂') && card.curLife > 0) {
     card.atk += dmg;
@@ -1324,6 +1364,9 @@ async function dealDmgToMon(who, card, dmg, source) {
 }
 
 async function destroyMonster(who, card, source) {
+  // 破壊アニメ再生
+  await animateDestroy(card);
+  showBanner(`💀 ${card.name} 破壊！`, '#cc2244', 800);
   G[who].field = G[who].field.filter(c=>c.id!==card.id);
   if(G[who].partner.onField && G[who].partner.id===card.id) {
     G[who].partner.onField=false;
@@ -1414,6 +1457,52 @@ function triggerSTrigger(who, card) {
 // =====================================================
 function allCpuMonsters() { return [...G.cpu.field, ...(G.cpu.partner.onField?[G.cpu.partner]:[])];}
 function allPlayerMonsters() { return [...G.player.field, ...(G.player.partner.onField?[G.player.partner]:[])];}
+
+// =====================================================
+// VISUAL EFFECTS
+// =====================================================
+function getCardEl(card) {
+  return document.querySelector(`[data-id="${card.id}"]`);
+}
+
+function flashDamage(card, dmg) {
+  const el = getCardEl(card);
+  if(!el) return;
+  el.classList.remove('damage-hit');
+  void el.offsetWidth;
+  el.classList.add('damage-hit');
+  setTimeout(()=>el.classList.remove('damage-hit'), 400);
+  // フロートダメージ数字
+  const rect = el.getBoundingClientRect();
+  const f = document.createElement('div');
+  f.className = 'float-damage';
+  f.textContent = `-${dmg}`;
+  f.style.left = (rect.left + rect.width/2 - 16) + 'px';
+  f.style.top = (rect.top + window.scrollY - 4) + 'px';
+  document.body.appendChild(f);
+  setTimeout(()=>f.remove(), 900);
+}
+
+function animateSummon(card) {
+  // render()後にDOMが更新されてからアニメ
+  requestAnimationFrame(()=>{
+    requestAnimationFrame(()=>{
+      const el = getCardEl(card);
+      if(!el) return;
+      el.classList.add('just-summoned');
+      setTimeout(()=>el.classList.remove('just-summoned'), 500);
+    });
+  });
+}
+
+function animateDestroy(card) {
+  return new Promise(resolve=>{
+    const el = getCardEl(card);
+    if(!el){ resolve(); return; }
+    el.classList.add('being-destroyed');
+    setTimeout(resolve, 480);
+  });
+}
 
 function drawCards(who, n, source) {
   let drawn=0;
