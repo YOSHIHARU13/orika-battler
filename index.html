@@ -416,10 +416,11 @@ const KEYWORD_DESC = {
   '突撃':'召喚したターンに攻撃できる',
   '前衛':'相手はこのモンスターを優先して攻撃しなければならない',
   '鼓動':'シールドから手札に加わった時、即座に無料で効果発動',
-  '連鎖':'このカードを召喚/発動した後、デッキトップをめくり同文明モンスターなら追加召喚',
+  '連鎖':'召喚後デッキトップをめくり、同文明モンスターなら追加召喚（1回限り）',
   '統率':'登場時にデッキトップをめくり、種族が同じなら即追加召喚',
   '天啓':'登場時にデッキトップをめくり、スペルなら即発動',
-  '不死':'このモンスターが破壊された時、次のターン開始時に復活する',
+  '激昂':'このモンスターがダメージを受けるたび、受けた分だけATKが永続上昇する',
+  '封印':'このモンスターが場にいる間、相手全モンスターのATKを2下げる',
   '加速':'このモンスターが場にいる間、自分の召喚コストが1少なくなる',
 };
 
@@ -431,9 +432,9 @@ const FIRE_MONSTERS = [
   { name:'灼熱の突撃兵', civ:'火', type:'monster', en:2, atk:2, life:3,  keywords:['突撃','連鎖'],
     effect:'【突撃】【連鎖】召喚後デッキトップをめくり、火文明モンスターなら追加召喚', spellType:'', emoji:'🗡️',
     onSummon: null },
-  { name:'炎獣ファング',  civ:'火', type:'monster', en:2, atk:2, life:4,  keywords:['突撃'],
-    effect:'【突撃】\n登場時:相手モンスター1体に2ダメージ', spellType:'', emoji:'🐺',
-    onSummon: (who)=>{ damageOneTarget2(who, who==='player'?'cpu':'player', 2, '炎獣ファング'); } },
+  { name:'炎獣ファング',  civ:'火', type:'monster', en:2, atk:3, life:4,  keywords:['突撃','激昂'],
+    effect:'【突撃】【激昂】ダメージを受けるたびATKがその分永続上昇\n登場時:相手モンスター1体に3ダメージ', spellType:'', emoji:'🐺',
+    onSummon: (who)=>{ damageOneTarget2(who, who==='player'?'cpu':'player', 3, '炎獣ファング'); } },
   { name:'炎の守護者',   civ:'火', type:'monster', en:3, atk:4, life:10, keywords:['前衛','天啓'],
     effect:'【前衛】【天啓】登場時デッキトップをめくり、スペルなら即発動', spellType:'', emoji:'🛡️',
     onSummon: null },
@@ -441,16 +442,16 @@ const FIRE_MONSTERS = [
     effect:'【突撃】【統率】デッキトップをめくり同種族（ウォリアー）なら追加召喚\n登場時:相手モンスター1体に6ダメージ', spellType:'', emoji:'⚔️',
     tribe:'ウォリアー',
     onSummon: (who)=>{ damageOneTarget2(who, who==='player'?'cpu':'player', 6, '紅蓮の戦士'); } },
-  { name:'業火の巨人',   civ:'火', type:'monster', en:5, atk:9, life:13, keywords:['不死'],
-    effect:'【不死】破壊されても次ターン開始時に復活\n登場時:相手モンスター全体に5ダメージ＋相手シールド1枚ブレイク', spellType:'', emoji:'👹',
+  { name:'業火の巨人',   civ:'火', type:'monster', en:5, atk:9, life:13, keywords:['激昂'],
+    effect:'【激昂】ダメージを受けるたびATKがその分永続上昇\n登場時:相手モンスター全体に5ダメージ＋相手シールド1枚ブレイク', spellType:'', emoji:'👹',
     onSummon: async (who)=>{ await spreadDamage(who==='player'?'cpu':'player', 5, '業火の巨人'); await breakShield(who==='player'?'cpu':'player','業火の巨人'); } },
 ];
 
 const FIRE_SPELLS = [
   { name:'烈火の斬撃', civ:'火', type:'spell', en:1, keywords:['鼓動'],
-    effect:'【鼓動】\n相手モンスター1体に3ダメージ', emoji:'⚡', spellType:'damage_one', value:3 },
-  { name:'カウンターバースト', civ:'火', type:'spell', en:2, keywords:['鼓動'],
-    effect:'【鼓動】\n相手モンスター1体に5ダメージ', emoji:'💢', spellType:'damage_one', value:5 },
+    effect:'【鼓動】\n相手モンスター1体に5ダメージ', emoji:'⚡', spellType:'damage_one', value:5 },
+  { name:'業炎の爆裂', civ:'火', type:'spell', en:2, keywords:['鼓動'],
+    effect:'【鼓動】\n相手モンスター全体に4ダメージ', emoji:'💢', spellType:'damage_all', value:4 },
   { name:'ファイアボール', civ:'火', type:'spell', en:2, keywords:[],
     effect:'相手モンスター1体に7ダメージ', emoji:'🎯', spellType:'damage_one', value:7 },
   { name:'業炎の嵐',   civ:'火', type:'spell', en:3, keywords:[],
@@ -472,45 +473,45 @@ const WATER_MONSTERS = [
     effect:'【統率】デッキトップをめくり同種族（マリナー）なら追加召喚\n登場時:相手モンスター1体をバウンス＋1枚ドロー', spellType:'', emoji:'🌊',
     tribe:'マリナー',
     onSummon: (who)=>{ bounceOneTarget(who==='player'?'cpu':'player', who, '波濤の戦士'); drawCards(who, 1, '波濤の戦士'); } },
-  { name:'蒼波の剣士',  civ:'水', type:'monster', en:4, atk:7, life:11, keywords:['天啓'],
-    effect:'【天啓】デッキトップをめくり、スペルなら即発動\n登場時:相手モンスター全体をバウンス', spellType:'', emoji:'⚔️',
-    onSummon: (who)=>{ bounceAllTargets(who==='player'?'cpu':'player', '蒼波の剣士'); } },
-  { name:'深海の巨人',  civ:'水', type:'monster', en:5, atk:9, life:14, keywords:['不死'],
-    effect:'【不死】破壊されても次ターン開始時に復活\n登場時:3枚ドロー＋相手モンスター1体を破壊', spellType:'', emoji:'🐋',
-    onSummon: (who)=>{ drawCards(who, 3, '深海の巨人'); destroyOneRandom(who==='player'?'cpu':'player', '深海の巨人'); } },
+  { name:'蒼波の剣士',  civ:'水', type:'monster', en:4, atk:6, life:11, keywords:['天啓','封印'],
+    effect:'【天啓】デッキトップをめくり、スペルなら即発動\n【封印】場にいる間、相手全体のATK-2\n登場時:相手モンスター2体をバウンス', spellType:'', emoji:'⚔️',
+    onSummon: (who)=>{ bounceNTargets(who==='player'?'cpu':'player', 2, '蒼波の剣士'); } },
+  { name:'深海の巨人',  civ:'水', type:'monster', en:5, atk:8, life:14, keywords:['封印'],
+    effect:'【封印】場にいる間、相手全体のATK-2\n登場時:3枚ドロー＋相手モンスター3体をバウンス', spellType:'', emoji:'🐋',
+    onSummon: (who)=>{ drawCards(who, 3, '深海の巨人'); bounceNTargets(who==='player'?'cpu':'player', 3, '深海の巨人'); } },
 ];
 
 const WATER_SPELLS = [
   { name:'凍結の罠', civ:'水', type:'spell', en:1, keywords:['鼓動'],
-    effect:'【鼓動】\n相手モンスター1体をバウンス', emoji:'❄️', spellType:'bounce_one' },
+    effect:'【鼓動】\n相手モンスター2体をバウンス', emoji:'❄️', spellType:'bounce_two' },
   { name:'大波',     civ:'水', type:'spell', en:2, keywords:['鼓動'],
-    effect:'【鼓動】\n相手モンスター1体をバウンス＋1枚ドロー', emoji:'🌊', spellType:'bounce_draw' },
+    effect:'【鼓動】\n相手モンスター1体をバウンス＋2枚ドロー', emoji:'🌊', spellType:'bounce_draw2' },
   { name:'潮流',     civ:'水', type:'spell', en:2, keywords:[],
     effect:'3枚ドロー', emoji:'🌀', spellType:'draw', value:3 },
   { name:'深淵の審判', civ:'水', type:'spell', en:4, keywords:[],
-    effect:'相手モンスター全体をバウンス', emoji:'🌫️', spellType:'bounce_all' },
+    effect:'相手モンスター最大3体をバウンス', emoji:'🌫️', spellType:'bounce_three' },
 ];
 
 // --- パートナー ---
 const PLAYER_PARTNER = {
   name:'紅蓮王ヴァルド', civ:'火', type:'monster', en:5, atk:11, life:16,
-  keywords:['突撃','不死'], tribe:'ウォリアー',
-  effect:'【突撃】【不死】\n召喚条件:相手シールドを3枚以上ブレイク後\n登場時:相手モンスター全体に6ダメージ＋相手シールドを2枚追加ブレイク\n常在:自分の全モンスターATK+3',
+  keywords:['突撃','激昂'], tribe:'ウォリアー',
+  effect:'【突撃】【激昂】ダメージを受けるたびATKが永続上昇\n召喚条件:相手シールドを3枚以上ブレイク後\n登場時:相手モンスター全体に6ダメージ＋相手シールドを2枚追加ブレイク\n常在:自分の全モンスターATK+3',
   emoji:'👑', isPartner:true,
-  summonCondition:'相手シールド3枚以上ブレイク後',
+  summonCondition:'相手シールドを2枚以上ブレイクした時点で解放',
   onSummon: async (who)=>{
     await spreadDamage('cpu', 6, '紅蓮王ヴァルド');
-    await breakShield('cpu','ヴァルド');
+    if(!G.gameOver) await breakShield('cpu','ヴァルド');
     if(!G.gameOver) await breakShield('cpu','ヴァルド');
   }
 };
 const CPU_PARTNER = {
   name:'深淵王リゼル', civ:'水', type:'monster', en:5, atk:8, life:20,
-  keywords:['前衛','不死'], tribe:'マリナー',
-  effect:'【前衛】【不死】\n召喚条件:自分の墓地に6枚以上\n登場時:相手モンスター全体をバウンス＋5枚ドロー\n常在:自分がダメージを受けるたびに2枚ドロー',
+  keywords:['前衛','封印'], tribe:'マリナー',
+  effect:'【前衛】【封印】場にいる間、相手全体のATK-2\n召喚条件:自分の墓地に6枚以上\n登場時:相手モンスター3体をバウンス＋5枚ドロー\n常在:自分がダメージを受けるたびに2枚ドロー',
   emoji:'👑', isPartner:true,
-  summonCondition:'自分の墓地に6枚以上',
-  onSummon: (who)=>{ bounceAllTargets('player', '深淵王リゼル'); drawCards('cpu', 5, '深淵王リゼル'); }
+  summonCondition:'自分の手札が6枚以上',
+  onSummon: (who)=>{ bounceNTargets('player', 3, '深淵王リゼル'); drawCards('cpu', 5, '深淵王リゼル'); }
 };
 
 // =====================================================
@@ -539,6 +540,7 @@ function initGame() {
   G = {
     turn:1, phase:'mana', activePlayer:'player', gameOver:false,
     selectedAttacker:null, attackMode:false, chargedManaThisTurn:false,
+    triggerLock:false,
     player:{
       deck:makeDeck(FIRE_MONSTERS, FIRE_SPELLS),
       hand:[], field:[], shields:[], mana:[], grave:[], manaUsed:0,
@@ -647,9 +649,13 @@ function renderField(who) {
 
 function getEffectiveAtk(card, who) {
   let atk = card.atk + (card.tempAtk||0);
-  // パートナー常在：突撃ATK+2
+  // パートナー常在：ヴァルドATK+3
   if(G[who].partner.onField && G[who].partner.name==='紅蓮王ヴァルド' && !card.isPartner) atk+=3;
-  // 加速持ちがいると召喚コスト-1（表示には影響しない、召喚処理で使う）
+  // 封印：相手に封印持ちがいるとATK-2（0未満にはしない）
+  const opp = who==='player'?'cpu':'player';
+  const sealCount = [...G[opp].field, ...(G[opp].partner.onField ? [G[opp].partner] : [])]
+    .filter(c=>c.keywords&&c.keywords.includes('封印')).length;
+  atk = Math.max(0, atk - sealCount*2);
   return atk;
 }
 
@@ -665,6 +671,10 @@ function createMonsterEl(card, who) {
   const hpClass = lr>0.5?'':(lr>0.25?'mid':'low');
   const eatk = getEffectiveAtk(card, who);
   const kwHtml = card.keywords.map(k=>`<span class="keyword-tag keyword-${k}">${k}</span>`).join('');
+  // 攻撃済みバッジ
+  const attackedBadge = (who==='player' && G.phase==='battle' && card.hasAttacked)
+    ? '<div style="position:absolute;top:2px;right:2px;font-size:8px;background:#444;color:#aaa;border-radius:3px;padding:1px 3px;">攻撃済</div>' : '';
+  const canAtk = who==='player' && G.phase==='battle' && !card.hasAttacked && card.canAttackThisTurn;
   el.innerHTML = `
     <div class="card-en">${card.en}</div>
     <div class="card-emoji">${card.emoji}</div>
@@ -672,16 +682,21 @@ function createMonsterEl(card, who) {
     <div class="card-stats"><span class="card-atk">⚔${eatk}</span><span class="card-life">♥${card.curLife}</span></div>
     <div class="card-keywords">${kwHtml}</div>
     <div class="hp-bar-wrap"><div class="hp-bar ${hpClass}" style="width:${lr*100}%"></div></div>
+    ${attackedBadge}
     <div style="display:none;position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);
       background:#0a0a18;border:1px solid #446;border-radius:6px;padding:6px 8px;font-size:9px;
       color:#ccccdd;white-space:pre-line;width:160px;z-index:100;line-height:1.5;pointer-events:none;
       box-shadow:0 4px 16px rgba(0,0,0,0.9);" class="card-tooltip-box">${card.name}
 ATK:${eatk} / LIFE:${card.curLife}/${card.maxLife} / EN:${card.en}
 ${card.keywords.length?'【'+card.keywords.join('・')+'】\n':''}${card.effect||'効果なし'}</div>`;
-  // ホバーで効果表示
+  // 攻撃済みはグレーアウト
+  if(who==='player' && G.phase==='battle' && card.hasAttacked) {
+    el.style.opacity='0.45';
+    el.style.filter='grayscale(60%)';
+  }
   el.addEventListener('mouseenter', ()=>{ const t=el.querySelector('.card-tooltip-box'); if(t) t.style.display='block'; });
   el.addEventListener('mouseleave', ()=>{ const t=el.querySelector('.card-tooltip-box'); if(t) t.style.display='none'; });
-  if(who==='player' && G.phase==='battle' && !card.hasAttacked && card.canAttackThisTurn) {
+  if(canAtk) {
     el.classList.add('can-attack');
     el.onclick = ()=>selectAttacker(card);
   } else if(who==='cpu' && G.attackMode) {
@@ -785,8 +800,8 @@ function renderPartner(who) {
   } else {
     // 進捗表示
     if(who==='player') {
-      const broken = G.player.totalShieldsBroken;
-      condStatus = `🔒 ${broken}/3枚ブレイク`; condColor = '#ff8844';
+      const broken = G.player.cpuShieldsBroken||0;
+      condStatus = `🔒 ${broken}/2枚ブレイク`; condColor = '#ff8844';
     } else {
       const grave = G.cpu.grave.length;
       condStatus = `🔒 墓地${grave}/6枚`; condColor = '#8888ff';
@@ -849,7 +864,7 @@ function renderControls() {
     btnAtk.disabled=true; btnEnd.disabled=false;
     document.getElementById('actionHint').textContent = G.chargedManaThisTurn
       ? '✅ チャージ済み。スキップしてメインへ'
-      : '👆 手札をクリック → 即チャージ → 自動でメインへ';
+      : '👆 マナに置くカードを選んでください（手札をクリック）';
   } else if(G.phase==='main') {
     btnMain.textContent='⚔ バトルフェイズへ';
     btnMain.onclick=endPhase; btnMain.disabled=false;
@@ -1001,15 +1016,17 @@ async function summonMonster(who, card, handIndex, free=false) {
   const accel = getAccelBonus(who);
   if(!free) state.manaUsed += Math.max(0, card.en - accel);
   const fc = {...card, id:newId(), curLife:card.life, maxLife:card.life, tempAtk:0,
-    justSummoned:true, hasAttacked:false, canAttackThisTurn:card.keywords.includes('突撃'), revivedNext:false};
+    justSummoned:true, hasAttacked:false, canAttackThisTurn:card.keywords.includes('突撃'), revivedNext:false,
+    keywords:[...card.keywords]};
   state.field.push(fc);
   log(`${who==='player'?'プレイヤー':'CPU'}: 【${card.name}】召喚！`+(accel>0?' (加速-1EN)':''), who==='player'?'player':'cpu');
   if(G.gameOver) return;
   if(fc.onSummon) await fc.onSummon(who);
   if(G.gameOver) return;
-  if(fc.keywords.includes('連鎖')) await triggerChain(who, fc);
-  if(fc.keywords.includes('統率')) await triggerToiitsu(who, fc);
-  if(fc.keywords.includes('天啓')) await triggerTenkei(who, fc);
+  // 連鎖・統率・天啓は1回のみ（発火後にfcのキーワードから除去して再発火防止）
+  if(fc.keywords.includes('連鎖')) { fc.keywords=fc.keywords.filter(k=>k!=='連鎖'&&k!=='統率'&&k!=='天啓'); await triggerChain(who, fc); }
+  else if(fc.keywords.includes('統率')) { fc.keywords=fc.keywords.filter(k=>k!=='連鎖'&&k!=='統率'&&k!=='天啓'); await triggerToiitsu(who, fc); }
+  else if(fc.keywords.includes('天啓')) { fc.keywords=fc.keywords.filter(k=>k!=='天啓'); await triggerTenkei(who, fc); }
   render();
   if(who==='player') checkAutoAdvance();
 }
@@ -1036,12 +1053,22 @@ async function executeSpellEffect(who, card) {
     case 'bounce_one':
       bounceOneTarget(opp, who, card.name);
       break;
+    case 'bounce_two':
+      bounceNTargets(opp, 2, card.name);
+      break;
     case 'bounce_draw':
       bounceOneTarget(opp, who, card.name);
       drawCards(who, 1, card.name);
       break;
+    case 'bounce_draw2':
+      bounceOneTarget(opp, who, card.name);
+      drawCards(who, 2, card.name);
+      break;
     case 'bounce_all':
       bounceAllTargets(opp, card.name);
+      break;
+    case 'bounce_three':
+      bounceNTargets(opp, 3, card.name);
       break;
     case 'fire_storm':
       spreadDamage(opp, 4, card.name);
@@ -1079,7 +1106,11 @@ async function triggerChain(who, card) {
   G[who].deck.pop();
   if(top.type==='monster' && top.civ===card.civ) {
     await new Promise(r=>showReveal(top, true, '連鎖ヒット！ 追加召喚！', r, card, who));
+    // 連鎖は1回のみ（free=true, chainBlock=trueで連鎖を引き継がない）
+    const savedKw = top.keywords;
+    top.keywords = top.keywords.filter(k=>k!=='連鎖'&&k!=='統率'&&k!=='天啓');
     await summonMonster(who, top, null, true);
+    top.keywords = savedKw;
   } else {
     G[who].hand.push(top);
     await new Promise(r=>showReveal(top, false, '外れ… 手札に加わった', r, card, who));
@@ -1096,7 +1127,10 @@ async function triggerToiitsu(who, card) {
   G[who].deck.pop();
   if(sameTribe) {
     await new Promise(r=>showReveal(top, true, `${top.tribe}族ヒット！ 追加召喚！`, r, card, who));
+    const savedKw = top.keywords;
+    top.keywords = top.keywords.filter(k=>k!=='連鎖'&&k!=='統率'&&k!=='天啓');
     await summonMonster(who, top, null, true);
+    top.keywords = savedKw;
   } else {
     G[who].hand.push(top);
     await new Promise(r=>showReveal(top, false, '外れ… 手札に加わった', r, card, who));
@@ -1149,7 +1183,7 @@ function closeReveal() {
 function checkPartnerCondition(who) {
   const p = G[who].partner;
   if(p.onField||!p.available) return false;
-  return who==='player' ? G.player.totalShieldsBroken>=3 : G.cpu.grave.length>=6;
+  return who==='player' ? (G.player.cpuShieldsBroken||0)>=2 : G.cpu.hand.length>=6;
 }
 
 function showPartnerDetail(who) {
@@ -1229,7 +1263,7 @@ function cancelAction() {
   render();
 }
 
-function executeAttack(target, type) {
+async function executeAttack(target, type) {
   if(!G.selectedAttacker||G.gameOver) return;
   const attacker = G.selectedAttacker;
   const atk = getEffectiveAtk(attacker,'player');
@@ -1239,16 +1273,29 @@ function executeAttack(target, type) {
     if(hasVanguard&&!target.keywords.includes('前衛')){ log('前衛持ちを優先して攻撃してください','system'); return; }
     const defAtk = getEffectiveAtk(target,'cpu');
     log(`【${attacker.name}】ATK:${atk} ⚔ 【${target.name}】ATK:${defAtk}`,'player');
-    dealDmgToMon('cpu',target,atk,attacker.name);
+    await dealDmgToMon('cpu',target,atk,attacker.name);
     const dead = target.curLife<=0;
-    if(!dead){ dealDmgToMon('player',attacker,defAtk,`${target.name}の反撃`); }
-    else { log(`${target.name}は破壊されたため反撃なし`,'system'); }
+    if(!dead&&!G.gameOver){ await dealDmgToMon('player',attacker,defAtk,`${target.name}の反撃`); }
+    else if(!G.gameOver){ log(`${target.name}は破壊されたため反撃なし`,'system'); }
     attacker.hasAttacked=true;
   } else if(type==='direct') {
     const hasVanguard = G.cpu.field.some(c=>c.keywords.includes('前衛'))||(G.cpu.partner.onField&&G.cpu.partner.keywords.includes('前衛'));
     if(hasVanguard){ log('前衛持ちがいるため直接攻撃できません','system'); return; }
+    const cpuPartnerGuard = G.cpu.shields.length===0 && G.cpu.partner.onField;
+    if(cpuPartnerGuard){
+      log(`シールドがない！ しかし【${G.cpu.partner.name}】が守護！ パートナーを攻撃してください`, 'system');
+      return;
+    }
     log(`【${attacker.name}】がCPUに直接攻撃！`,'player');
-    breakShield('cpu', attacker.name);
+    if(G.cpu.shields.length===0) {
+      // シールドなし・パートナーなし→トドメ
+      log(`CPUへの直撃！！ ゲーム終了！`,'win');
+      attacker.hasAttacked=true;
+      cancelAction();
+      endGame('player');
+      return;
+    }
+    await breakShield('cpu', attacker.name);
     attacker.hasAttacked=true;
   }
   cancelAction();
@@ -1264,6 +1311,12 @@ function executeAttack(target, type) {
 async function dealDmgToMon(who, card, dmg, source) {
   card.curLife -= dmg;
   log(`${source} → ${card.name}に${dmg}ダメージ（残LIFE:${card.curLife}）`,'damage');
+  // 激昂：受けたダメージ分ATK永続上昇
+  if(card.keywords && card.keywords.includes('激昂') && card.curLife > 0) {
+    card.atk += dmg;
+    log(`【激昂】${card.name}のATKが${dmg}上昇！（現ATK:${card.atk}）`,'chain');
+  }
+  // リゼル常在：ダメージ受けるたび2枚ドロー
   if(G.cpu.partner.onField && G.cpu.partner.name==='深淵王リゼル' && who==='cpu') {
     drawCards('cpu',2,'リゼル（常在）');
   }
@@ -1276,6 +1329,11 @@ async function destroyMonster(who, card, source) {
     G[who].partner.onField=false;
     G[who].partner.available=false;
     log(`【${card.name}】破壊。パートナーゾーンに帰還（再召喚不可）`,'damage');
+    // シールドが0の状態でパートナーが破壊された→負け
+    if(G[who].shields.length===0 && !G.gameOver) {
+      log(`シールドなし＋パートナー破壊！ ${who==='player'?'プレイヤー':'CPU'}の敗北！`,'win');
+      endGame(who==='cpu'?'player':'cpu');
+    }
     return;
   }
   // 不死チェック
@@ -1293,16 +1351,11 @@ async function destroyMonster(who, card, source) {
 }
 
 function bounceOneTarget(targetWho, actingWho, source) {
-  // パートナーを除いた対象リスト
   const targets = (targetWho==='cpu' ? allCpuMonsters() : allPlayerMonsters())
     .filter(c=>!c.isPartner);
   if(!targets.length){ log(`${source}: バウンス対象なし（パートナーは耐性あり）`,'system'); return; }
-  if(targetWho==='player') {
-    showCardSelect('バウンス対象を選択', targets, t=>{ bounceMonster(targetWho, t, source); render(); });
-  } else {
-    const t = targets.reduce((a,b)=>getEffectiveAtk(b,'cpu')>=getEffectiveAtk(a,'cpu')?b:a);
-    bounceMonster(targetWho, t, source);
-  }
+  const t = targets.reduce((a,b)=>getEffectiveAtk(b,targetWho)>=getEffectiveAtk(a,targetWho)?b:a);
+  bounceMonster(targetWho, t, source);
 }
 
 function bounceMonster(who, card, source) {
@@ -1319,27 +1372,26 @@ function bounceMonster(who, card, source) {
 async function breakShield(who, source) {
   if(G.gameOver) return;
   const state = G[who];
-  if(state.shields.length>0) {
-    const shield = state.shields.pop();
-    log(`${source}: ${who==='cpu'?'CPU':'プレイヤー'}のシールドを破壊！（残${state.shields.length}枚）`,'shield');
-    showBanner('💥 シールドブレイク！', who==='cpu'?'#ff6633':'#66aaff', 1000);
-    if(who==='player') G.player.totalShieldsBroken++;
-    else G.cpu.totalShieldsBroken++;
-    if(shield.keywords&&shield.keywords.includes('鼓動')) {
-      await triggerSTrigger(who, shield);
-    } else {
-      state.hand.push(shield);
-      log(`シールドが手札に（${shield.name}）`, who==='cpu'?'cpu':'player');
-    }
-    if(who==='cpu'&&checkPartnerCondition('player')) log('✨ ヴァルド召喚条件達成！メインフェイズにパートナーゾーンをクリック','special');
-    renderShields(who); renderStats();
-  } else {
-    log(`${source}: ${who==='cpu'?'CPU':'プレイヤー'}への直撃！！ ゲーム終了！`,'win');
-    endGame(who==='cpu'?'player':'cpu');
+  if(state.shields.length===0) return;
+  const shield = state.shields.pop();
+  log(`${source}: ${who==='cpu'?'CPU':'プレイヤー'}のシールドを破壊！（残${state.shields.length}枚）`,'shield');
+  showBanner('💥 シールドブレイク！', who==='cpu'?'#ff6633':'#66aaff', 1000);
+  if(who==='cpu') G.player.cpuShieldsBroken = (G.player.cpuShieldsBroken||0) + 1;
+  if(state.shields.length===0 && state.partner.onField) {
+    log(`💀 CPUのシールドがなくなった！ここからパートナーを倒せば勝利！`, 'system');
   }
+  if(shield.keywords&&shield.keywords.includes('鼓動')) {
+    await triggerSTrigger(who, shield);
+  } else {
+    state.hand.push(shield);
+    log(`シールドが手札に（${shield.name}）`, who==='cpu'?'cpu':'player');
+  }
+  if(who==='cpu'&&checkPartnerCondition('player')) log('✨ ヴァルド召喚条件達成！メインフェイズにパートナーゾーンをクリック','special');
+  renderShields(who); renderStats();
 }
 
 function triggerSTrigger(who, card) {
+  G.triggerLock = true;
   return new Promise(resolve => {
     log(`⚡⚡ 鼓動発動！！【${card.name}】がシールドから炸裂！！`,'strigger');
     showBanner('⚡ 鼓動！！', '#ffd700', 1500);
@@ -1351,6 +1403,7 @@ function triggerSTrigger(who, card) {
       document.getElementById('striggerOverlay').style.display='none';
       await executeSpellEffect(who, card);
       render();
+      G.triggerLock = false;
       resolve();
     }, 2000);
   });
@@ -1369,14 +1422,19 @@ function drawCards(who, n, source) {
 }
 
 
-function damageOneTarget2(who, opp, dmg, source) {
+async function damageOneTarget2(who, opp, dmg, source) {
   if(who==='player') {
     const targets = allCpuMonsters();
-    if(targets.length>0) showCardSelect('ダメージ対象',targets,t=>{if(t){dealDmgToMon('cpu',t,dmg,source);render();}});
-    else log(`${source}: 対象なし`,'system');
+    if(!targets.length){ log(`${source}: 対象なし`,'system'); return; }
+    await new Promise(resolve=>{
+      showCardSelect('ダメージ対象', targets, async t=>{
+        if(t){ await dealDmgToMon('cpu',t,dmg,source); render(); }
+        resolve();
+      });
+    });
   } else {
     const t = pickTarget(opp);
-    if(t) dealDmgToMon(opp,t,dmg,source);
+    if(t) await dealDmgToMon(opp,t,dmg,source);
     else log(`${source}: 対象なし`,'system');
   }
 }
@@ -1390,13 +1448,24 @@ function destroyOneRandom(who, source) {
   destroyMonster(who, t, source);
 }
 
+function bounceNTargets(who, n, source) {
+  const targets = [...(who==='cpu' ? allCpuMonsters() : allPlayerMonsters())]
+    .filter(c=>!c.isPartner)
+    .sort((a,b)=>getEffectiveAtk(b,who)-getEffectiveAtk(a,who))
+    .slice(0, n);
+  if(!targets.length){ log(`${source}: バウンス対象なし`,'system'); return; }
+  log(`${source}: ${who==='cpu'?'CPU':'プレイヤー'}のモンスター${targets.length}体をバウンス！`,'special');
+  showBanner(`🌊 ${targets.length}体バウンス！`, '#00ccff', 1200);
+  targets.forEach(t=>bounceMonster(who, t, source));
+}
+
 function bounceAllTargets(who, source) {
   const targets = (who==='cpu' ? allCpuMonsters() : allPlayerMonsters())
     .filter(c=>!c.isPartner);
-  if(!targets.length){ log(`${source}: バウンス対象なし（パートナーは耐性あり）`,'system'); return; }
-  log(`${source}: ${who==='cpu'?'CPU':'プレイヤー'}のモンスターを手札に戻した！`,'special');
+  if(!targets.length){ log(`${source}: バウンス対象なし`,'system'); return; }
+  log(`${source}: ${who==='cpu'?'CPU':'プレイヤー'}の全モンスターをバウンス！`,'special');
   showBanner('🌊 全体バウンス！', '#00ccff', 1200);
-  [...targets].forEach(t => bounceMonster(who, t, source));
+  [...targets].forEach(t=>bounceMonster(who, t, source));
 }
 
 function buffRandomAlly(who, val, source) {
@@ -1407,13 +1476,12 @@ function buffRandomAlly(who, val, source) {
   log(`${source}: ${t.name}のATK+${val}（このターン）`,'effect');
 }
 
-async function spreadDamage(who, total, source) {
-  const targets = who==='cpu' ? allCpuMonsters() : allPlayerMonsters();
+async function spreadDamage(who, dmg, source) {
+  const targets = who==='cpu' ? [...allCpuMonsters()] : [...allPlayerMonsters()];
   if(!targets.length){log(`${source}: 対象なし`,'system');return;}
-  const dmgs = targets.map(()=>0);
-  for(let i=0;i<total;i++) dmgs[Math.floor(Math.random()*targets.length)]++;
-  for(let i=0;i<targets.length;i++){
-    if(dmgs[i]>0) await dealDmgToMon(who,targets[i],dmgs[i],source);
+  for(const t of targets){
+    if(G.gameOver) return;
+    await dealDmgToMon(who, t, dmg, source);
   }
 }
 
@@ -1437,10 +1505,11 @@ function showCardSelect(title, cards, cb) {
     const btn=document.createElement('button');
     btn.className='select-card-btn';
     btn.innerHTML=`${card.emoji} ${card.name}<br><small>ATK:${card.atk||'-'} LIFE:${card.curLife||card.life}</small>`;
-    btn.onclick=()=>{closeCardSelect();cb(card);};
+    btn.onclick=()=>{ closeCardSelect(); G.triggerLock=false; cb(card); };
     list.appendChild(btn);
   });
   document.getElementById('cardSelectModal').style.display='flex';
+  G.triggerLock = true;
 }
 function closeCardSelect(){ document.getElementById('cardSelectModal').style.display='none'; }
 
@@ -1568,8 +1637,12 @@ async function cpuBattlePhase() {
 
 async function cpuAttackWith(attacker) {
   if(attacker.hasAttacked||G.gameOver) return;
+  // トリガー処理中は待機
+  while(G.triggerLock) { await new Promise(r=>setTimeout(r,200)); }
+  if(G.gameOver) return;
   const atk=getEffectiveAtk(attacker,'cpu');
-  const pmons=allPlayerMonsters();
+  // 前衛チェック（パートナーを除いた通常モンスターのみ）
+  const pmons = G.player.field.slice(); // パートナーは別扱い
   const vgs=pmons.filter(c=>c.keywords.includes('前衛'));
 
   if(vgs.length>0) {
@@ -1593,6 +1666,13 @@ async function cpuAttackWith(attacker) {
       await breakShield('player',attacker.name);
     }
   } else {
+    // シールドなし・モンスターなし・パートナーなし→トドメ
+    if(G.player.shields.length===0) {
+      log(`CPU: 【${attacker.name}】がプレイヤーに直接攻撃！ ゲーム終了！`,'cpu');
+      attacker.hasAttacked=true;
+      endGame('cpu');
+      return;
+    }
     log(`CPU: 【${attacker.name}】がプレイヤーに直接攻撃！`,'cpu');
     await breakShield('player',attacker.name);
   }
