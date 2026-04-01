@@ -952,57 +952,206 @@ function update() {
 }
 
 /* ─────────────────────────────
-   BUILD JSON (single card)
+   TRIGGER MAP  (UI id → C# enum string)
+───────────────────────────── */
+const TRIGGER_MAP = {
+  summon:  'OnSummon',
+  destroy: 'OnDeath',
+  attack:  'OnAttack',
+  targeted:'OnDefend',
+  phase:   'OnTurnStart',
+  damaged: 'OnDamageTaken',
+  kill:    'OnDamageDealt',
+  ally:    'OnSummon',    // 最近似: 仕様に対応triggerなし→OnSummon
+  enemy:   'OnSummon',    // 同上
+  system:  'OnTurnStart', // 同上
+};
+
+/* ─────────────────────────────
+   BUILD JSON (single card) — エンジニア仕様準拠
 ───────────────────────────── */
 function buildJSON() {
-  const name=document.getElementById('cardName')?.value||'名称未設定';
-  const atk=parseInt(document.getElementById('atkVal')?.value||0);
-  const hp=parseInt(document.getElementById('hpVal')?.value||1);
-  const type=document.getElementById('cardType')?.value||'Monster';
-  const civ=document.getElementById('civType')?.value||'None';
+  const name = document.getElementById('cardName')?.value || '名称未設定';
+  const atk  = parseInt(document.getElementById('atkVal')?.value || 0);
+  const hp   = parseInt(document.getElementById('hpVal')?.value  || 1);
+  const type = document.getElementById('cardType')?.value || 'Monster';
+  const civ  = document.getElementById('civType')?.value  || 'None';
 
-  const baseCost=Math.floor((atk+hp)/4);
-  let staticScore=0; const activeStatic=[];
-  STATIC_ABILITIES.forEach(ab=>{
-    const s=getAbilityState(ab);
-    if (s) { staticScore+=ab.hasX?ab.score*s.x:ab.score; activeStatic.push(s); }
+  const baseCost = Math.floor((atk + hp) / 4);
+  let staticScore = 0;
+  const activeStatic = [];
+  STATIC_ABILITIES.forEach(ab => {
+    const s = getAbilityState(ab);
+    if (s) { staticScore += ab.hasX ? ab.score * s.x : ab.score; activeStatic.push(s); }
   });
-  const trigScore=getTriggeredScore();
-  const finalCost=Math.max(1,Math.min(10,Math.floor(baseCost+staticScore+trigScore)));
-  const condArr=buildConditionsArray();
-  const effectText=buildEffectDescription(name,atk,hp,finalCost,activeStatic,triggeredEffects,condArr);
+  const trigScore  = getTriggeredScore();
+  const finalCost  = Math.max(1, Math.min(10, Math.floor(baseCost + staticScore + trigScore)));
+  const condArr    = buildConditionsArray();
+  const effectText = buildEffectDescription(name, atk, hp, finalCost, activeStatic, triggeredEffects, condArr);
 
-  const staticArr=activeStatic.map(ab=>{
-    const o={type:ab.id,label:ab.name,params:{}};
-    if (ab.hasX) o.params.value=ab.x;
-    if (ab.needsTag) o.params.tag=ab.tag||null;
-    return o;
-  });
-  const trigArr=triggeredEffects.map(t=>{
-    const trigObj=TRIGGERS.find(tr=>tr.id===document.getElementById(`ti-trigger-${t.id}`)?.value);
-    const action=ACTIONS.find(a=>a.id===document.getElementById(`ti-action-${t.id}`)?.value);
-    if (!action||!trigObj) return null;
-    const x=parseInt(document.getElementById(`ti-param-x-${t.id}`)?.value||1);
-    const y=parseInt(document.getElementById(`ti-param-y-${t.id}`)?.value||1);
-    const tag=(document.getElementById(`ti-tag-${t.id}`)?.value||'').trim()||null;
-    const params={};
-    if (action.params.includes('x')) params.x=x;
-    if (action.params.includes('y')) params.y=y;
-    if (action.needsTag) params.tag=tag;
-    return { trigger:trigObj.name, triggerDetail:trigObj.detail, effects:[{type:action.id,label:action.name,params}] };
+  /* ── civilizations (配列。None は除外) ── */
+  const civilizations = civ === 'None' ? [] : [civ];
+
+  /* ── keywords: 前衛があれば "Vanguard" を追加 ── */
+  const keywords = [];
+  if (activeStatic.find(ab => ab.id === 'vanguard')) keywords.push('Vanguard');
+
+  /* ── effects（トリガー型）→ エンジニア仕様フォーマット ── */
+  const effects = triggeredEffects.map(t => {
+    const uiTriggerId = document.getElementById(`ti-trigger-${t.id}`)?.value;
+    const action      = ACTIONS.find(a => a.id === document.getElementById(`ti-action-${t.id}`)?.value);
+    if (!action) return null;
+
+    const triggerKey = TRIGGER_MAP[uiTriggerId] || 'OnSummon';
+    const x   = parseInt(document.getElementById(`ti-param-x-${t.id}`)?.value || 1);
+    const y   = parseInt(document.getElementById(`ti-param-y-${t.id}`)?.value || 1);
+    const tag = (document.getElementById(`ti-tag-${t.id}`)?.value || '').trim() || null;
+
+    // Conditions from global conditions panel → convert to spec tree
+    const conditionTree = buildSpecConditionTree(condArr);
+
+    // Action → spec action object
+    const specAction = convertActionToSpec(action, x, y, tag);
+    if (!specAction) return null;
+
+    return {
+      trigger: triggerKey,
+      conditions: conditionTree,
+      actions: [specAction]
+    };
   }).filter(Boolean);
-  const condJSON=condArr.map(c=>{ const o={type:c.type,n:c.n}; if(c.tag) o.tag=c.tag; return o; });
+
+  /* ── continuousEffects（永続効果）→ エンジニア仕様フォーマット ── */
+  const continuousEffects = [];
+
+  activeStatic.forEach(ab => {
+    // 前衛は keywords に出したので continuousEffects にも Vanguard modifier として追加
+    if (ab.id === 'vanguard') {
+      continuousEffects.push({
+        conditions: {},
+        modifiers: [{ type: 'Vanguard' }]
+      });
+      return;
+    }
+
+    // stat modifier 系
+    const mod = convertAbilityToModifier(ab);
+    if (mod) {
+      continuousEffects.push({ conditions: {}, modifiers: [mod] });
+    }
+  });
 
   return {
-    cardId:generateUUID(), name, civilization:civ, type,
-    cost:{type:'EN',value:finalCost},
-    tags:[...tags],
-    stats:{attack:atk,hp},
-    effectDescription:effectText,
-    effects:trigArr,
-    staticAbilities:staticArr,
-    conditions:condJSON
+    cardId: generateUUID(),
+    name,
+    civilizations,
+    type,
+    cost: { type: 'EN', value: finalCost },
+    stats: { attack: atk, defense: hp },  // HP = defense
+    keywords,
+    tags: [...tags],
+    effectDescription: effectText,
+    effects,
+    continuousEffects
   };
+}
+
+/* ─────────────────────────────
+   HELPER: conditions panel → spec condition tree
+───────────────────────────── */
+function buildSpecConditionTree(condArr) {
+  if (!condArr || condArr.length === 0) return {};
+  const items = condArr.map(c => {
+    if (c.type === 'tagCount') {
+      return { type: 'FieldCount', target: 'Ally', op: '>=', value: c.n };
+    }
+    if (c.type === 'hpBelow') {
+      return { type: 'HP', target: 'Self', op: '<=', value: c.n };
+    }
+    if (c.type === 'costBelow') {
+      return { type: 'HandSize', op: '<=', value: c.n };
+    }
+    return null;
+  }).filter(Boolean);
+
+  if (items.length === 0) return {};
+  if (items.length === 1) return items[0];
+  return { type: 'AND', items };
+}
+
+/* ─────────────────────────────
+   HELPER: UI action → spec action object
+───────────────────────────── */
+function convertActionToSpec(action, x, y, tag) {
+  switch (action.id) {
+    case 'damage':
+    case 'randDamage':
+      return { type: 'Damage', target: 'Enemy', selection: action.id === 'randDamage' ? 'Random' : 'PlayerChoice', count: 1, value: x };
+    case 'shieldBreak':
+      // シールドはEnemyPlayerへのダメージとして表現
+      return { type: 'Damage', target: 'EnemyPlayer', value: x };
+    case 'shieldAdd':
+      return { type: 'Heal', target: 'Self', value: x };
+    case 'destroyAct':
+      return { type: 'Destroy', target: 'Enemy', selection: 'PlayerChoice', count: 1 };
+    case 'buff':
+      return { type: 'Buff', target: 'Self', stat: 'attack', value: x };
+    case 'draw':
+      return { type: 'Draw', count: x };
+    case 'enBoost':
+      return { type: 'Draw', count: x }; // EN加速 → Draw で近似
+    case 'enReduce':
+      return { type: 'Debuff', target: 'Enemy', stat: 'attack', selection: 'Random', count: 1, value: x };
+    case 'deploy':
+      return { type: 'Summon', target: 'Ally', selection: 'CheapestFromHand' };
+    case 'recover':
+      return { type: 'Draw', count: x }; // 回収 → Draw で近似
+    case 'bounce':
+      return { type: 'Destroy', target: 'Enemy', selection: 'PlayerChoice', count: 1 };
+    case 'disable':
+      return { type: 'Debuff', target: 'Enemy', stat: 'attack', selection: 'PlayerChoice', count: 1, value: x * 100 };
+    case 'reattack':
+      return { type: 'Buff', target: 'Self', stat: 'attack', value: 0 }; // 再攻撃は仕様外→Buff 0で仮置き
+    case 'search':
+      return { type: 'Draw', count: 1 }; // サーチ → Draw 1枚で近似
+    case 'tagGrant':
+      return { type: 'Buff', target: 'Ally', stat: 'attack', value: 0 }; // タグ付与は仕様外→Buff 0で仮置き
+    default:
+      return { type: 'Draw', count: 1 };
+  }
+}
+
+/* ─────────────────────────────
+   HELPER: static ability → continuousEffect modifier
+───────────────────────────── */
+function convertAbilityToModifier(ab) {
+  switch (ab.id) {
+    case 'regen':
+      return { type: 'StatModifier', stat: 'defense', target: 'Self', value: ab.x * 5 };
+    case 'guard':
+      return { type: 'StatModifier', stat: 'defense', target: 'Self', value: ab.x * 10 };
+    case 'amplify':
+      return { type: 'StatModifier', stat: 'attack', target: 'Self', value: 20 };
+    case 'majesty':
+      return { type: 'StatModifier', stat: 'attack', target: 'AllEnemies', value: -50 };
+    case 'jaki':
+      return { type: 'StatModifier', stat: 'defense', target: 'AllEnemies', value: -(ab.x * 10) };
+    case 'resonance':
+      return { type: 'StatModifier', stat: 'attack', target: 'Self', value: ab.x * 10 };
+    case 'pierce':
+      return { type: 'StatModifier', stat: 'attack', target: 'Self', value: 0 }; // 貫通は仕様外
+    case 'stealth':
+    case 'jinso':
+    case 'transcend':
+    case 'immovable':
+    case 'randReduce':
+    case 'chainLogic':
+      return { type: 'StatModifier', stat: 'defense', target: 'Self', value: 0 }; // 仕様外→0値で記録
+    case 'vanguard':
+      return null; // keywords + Vanguard modifier は別で処理済み
+    default:
+      return null;
+  }
 }
 
 /* ─────────────────────────────
