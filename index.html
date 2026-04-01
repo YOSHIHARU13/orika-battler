@@ -3,1814 +3,1202 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>オリカバトラー テストプレイ版 v2</title>
+<title>オリカジェネレーター v4</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Noto+Serif+JP:wght@400;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Noto+Sans+JP:wght@400;700;900&display=swap');
-
-:root {
-  --fire:#ff4500; --water:#00bfff; --wood:#44cc44; --light:#ffdd88; --dark:#aa44ff;
-  --bg-dark:#0a0a0f; --bg-panel:#16213e; --gold:#ffd700;
-  --text:#e8e8f0; --text-dim:#8888aa; --border:#2a2a4a;
-  --shield-color:#a8d8ff; --mana-color:#4ade80; --danger:#ff3355;
+/* ═══════════════════════════════════════
+   CIV PALETTE
+═══════════════════════════════════════ */
+:root{
+  --bg:#0a0a0f;--surface:#12121a;--border:#2a2a40;
+  --gold:#f5c518;--text:#e8e8f0;--text-dim:#8888aa;
+  --red:#f87171;--green:#4ade80;--blue:#60a5fa;--warn:#fbbf24;
+  --civ-a:#7c6af7;--civ-b:#c084fc;--civ-glow:rgba(124,106,247,.13);
 }
-*{box-sizing:border-box;margin:0;padding:0;}
-body{background:var(--bg-dark);color:var(--text);font-family:'Noto Sans JP',sans-serif;min-height:100vh;overflow-x:hidden;}
+body.civ-None    {--civ-a:#7c6af7;--civ-b:#c084fc;--civ-glow:rgba(124,106,247,.13)}
+body.civ-Fire    {--civ-a:#f97316;--civ-b:#fbbf24;--civ-glow:rgba(249,115,22,.13)}
+body.civ-Water   {--civ-a:#3b82f6;--civ-b:#67e8f9;--civ-glow:rgba(59,130,246,.13)}
+body.civ-Nature  {--civ-a:#22c55e;--civ-b:#86efac;--civ-glow:rgba(34,197,94,.13)}
+body.civ-Darkness{--civ-a:#a855f7;--civ-b:#e879f9;--civ-glow:rgba(168,85,247,.13)}
+body.civ-Light   {--civ-a:#eab308;--civ-b:#fde68a;--civ-glow:rgba(234,179,8,.13)}
 
-/* ===== LAYOUT ===== */
-.game-wrapper{max-width:1400px;margin:0 auto;padding:10px;display:flex;flex-direction:column;gap:8px;}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Noto Serif JP',serif;min-height:100vh;overflow-x:hidden}
+body::before{content:'';position:fixed;top:-50%;left:-50%;width:200%;height:200%;
+  background:radial-gradient(ellipse at 20% 20%,var(--civ-glow) 0%,transparent 50%),
+             radial-gradient(ellipse at 80% 80%,var(--civ-glow) 0%,transparent 50%);
+  pointer-events:none;z-index:0}
 
-/* 左130px固定・右210px固定・中央は残り全部だがmin-width:0で溢れ防止 */
-.field{display:grid;grid-template-columns:130px minmax(0,1fr) 210px;gap:6px;align-items:start;}
-/* 中央カラムは必ずmin-width:0 */
-.field-center{min-width:0;overflow:hidden;}
+/* ═══ HEADER ═══ */
+header{text-align:center;padding:1.5rem 1rem 1.1rem;position:relative;z-index:1;border-bottom:1px solid var(--border)}
+header h1{font-family:'Cinzel Decorative',serif;font-size:clamp(1rem,3vw,1.8rem);
+  background:linear-gradient(135deg,var(--gold),var(--civ-b),var(--civ-a));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;letter-spacing:.1em}
+header p{color:var(--text-dim);font-size:.7rem;margin-top:.22rem;font-family:'JetBrains Mono',monospace}
+.v-badge{display:inline-block;background:var(--civ-glow);border:1px solid var(--civ-a);
+  border-radius:20px;padding:.04rem .5rem;font-size:.58rem;color:var(--civ-b);
+  font-family:'JetBrains Mono',monospace;margin-left:.45rem;vertical-align:middle}
 
-.battlefield{
-  display:flex;gap:5px;
-  flex-wrap:wrap;          /* 折り返し */
-  min-height:110px;max-height:155px;
-  overflow-y:auto;overflow-x:hidden;  /* 縦スクロール・横は隠す */
-  padding:6px;
-  background:var(--bg-panel);border:1px solid var(--border);border-radius:8px;
-  width:100%;box-sizing:border-box;
-}
+/* ═══ TAB NAV ═══ */
+.tab-nav{display:flex;gap:0;border-bottom:1px solid var(--border);position:relative;z-index:1;
+  background:var(--surface);padding:0 1.5rem}
+.tab-btn{padding:.75rem 1.5rem;font-family:'Noto Serif JP',serif;font-size:.82rem;
+  cursor:pointer;background:none;border:none;color:var(--text-dim);
+  border-bottom:2px solid transparent;transition:all .2s;position:relative;top:1px}
+.tab-btn.active{color:var(--civ-b);border-bottom-color:var(--civ-a);font-weight:700}
+.tab-btn:hover:not(.active){color:var(--text)}
+.tab-count{display:inline-flex;align-items:center;justify-content:center;
+  background:var(--civ-glow);border:1px solid var(--civ-a);border-radius:20px;
+  padding:.02rem .45rem;font-size:.6rem;color:var(--civ-b);margin-left:.4rem;
+  font-family:'JetBrains Mono',monospace}
 
-.monster-card{
-  width:68px;min-height:92px;
-  border-radius:6px;border:2px solid #333;padding:4px 3px;
-  font-size:8px;position:relative;display:flex;flex-direction:column;gap:2px;
-  transition:all 0.2s;flex-shrink:0;flex-grow:0;
-}
+/* ═══ PAGES ═══ */
+.page{display:none}.page.active{display:block}
 
-.hand-zone{
-  display:flex;gap:6px;flex-wrap:wrap;padding:8px;
-  background:var(--bg-panel);border:1px solid var(--border);border-radius:8px;
-  min-height:60px;width:100%;box-sizing:border-box;overflow-x:hidden;
-}
-.title-bar{text-align:center;font-family:'Cinzel',serif;font-size:20px;color:var(--gold);
-  text-shadow:0 0 20px rgba(255,215,0,0.5);padding:6px 0;border-bottom:1px solid #2a2a4a;letter-spacing:3px;}
-.zone-panel{background:var(--bg-panel);border:1px solid var(--border);border-radius:8px;padding:8px;}
-.zone-title{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;}
-.shields-zone{display:flex;gap:6px;padding:6px;background:var(--bg-panel);border:1px solid var(--border);border-radius:8px;align-items:center;flex-wrap:wrap;width:100%;box-sizing:border-box;}
-.shield{width:34px;height:46px;border-radius:5px;border:2px solid var(--shield-color);
-  background:linear-gradient(135deg,#1a3a5e,#0d2040);display:flex;align-items:center;
-  justify-content:center;font-size:16px;transition:all 0.4s;position:relative;flex-shrink:0;}
-.shield::before{content:'🛡';}
-.shield.broken{opacity:0;transform:scale(0) rotate(45deg);pointer-events:none;}
-.shield.strigger-shield{border-color:var(--gold);box-shadow:0 0 12px rgba(255,215,0,0.6);}
-.shield.strigger-shield::after{content:'S';position:absolute;bottom:2px;right:3px;
-  font-size:9px;font-weight:900;color:var(--gold);font-family:'Cinzel',serif;}
-.shield.targetable{border-color:var(--danger);box-shadow:0 0 12px rgba(255,51,85,0.6);
-  animation:pulse-target 0.8s infinite alternate;cursor:pointer;}
-.monster-card.water-card{background:linear-gradient(160deg,#081828,#041018);border-color:#006699;box-shadow:0 0 8px rgba(0,191,255,0.2);}
-.monster-card.can-attack{border-color:var(--gold)!important;box-shadow:0 0 14px rgba(255,215,0,0.6)!important;cursor:pointer;}
-.monster-card.can-attack:hover{transform:translateY(-4px);}
-.monster-card.selected-attacker{border-color:#ff4500!important;box-shadow:0 0 18px rgba(255,69,0,0.9)!important;transform:translateY(-5px);}
-.monster-card.targetable{border-color:var(--danger)!important;box-shadow:0 0 14px rgba(255,51,85,0.7)!important;
-  animation:pulse-target 0.8s infinite alternate;cursor:pointer;}
-.monster-card.just-summoned{animation:summon-pop 0.4s ease-out;}
-.monster-card.chain-glow{animation:chain-flash 0.6s ease-out;}
+/* ═══ LAYOUT ═══ */
+.app{display:grid;grid-template-columns:1fr 330px;gap:1.4rem;max-width:1280px;
+  margin:0 auto;padding:1.4rem;position:relative;z-index:1;align-items:start}
+@media(max-width:900px){.app{grid-template-columns:1fr}.preview-col{position:static!important}}
+.preview-col{position:sticky;top:1.4rem}
 
-@keyframes summon-pop{from{transform:scale(0.5) translateY(20px);opacity:0;}to{transform:scale(1) translateY(0);opacity:1;}}
-@keyframes chain-flash{0%{box-shadow:0 0 30px #ffdd00,0 0 60px #ffdd00;}100%{box-shadow:inherit;}}
-@keyframes pulse-target{from{box-shadow:0 0 8px rgba(255,51,85,0.4);}to{box-shadow:0 0 20px rgba(255,51,85,0.9);}}
-@keyframes damage-flash{0%{filter:brightness(3) saturate(0);}60%{filter:brightness(2) saturate(0);}100%{filter:none;}}
-@keyframes destroy-anim{0%{transform:scale(1);opacity:1;}40%{transform:scale(1.3) rotate(-8deg);filter:brightness(3);}100%{transform:scale(0) rotate(20deg);opacity:0;}}
-@keyframes float-dmg{0%{opacity:1;transform:translateY(0);}100%{opacity:0;transform:translateY(-48px);}}
-@keyframes spell-cast{0%{box-shadow:0 0 0 0 rgba(255,215,0,0.9);}100%{box-shadow:0 0 40px 20px rgba(255,215,0,0);}}
-.monster-card.damage-hit{animation:damage-flash 0.4s ease-out;}
-.monster-card.being-destroyed{animation:destroy-anim 0.5s ease-in forwards;}
-.float-damage{position:fixed;font-size:20px;font-weight:900;color:#ff4455;text-shadow:0 0 8px #ff0000,0 2px 0 #000;
-  pointer-events:none;animation:float-dmg 0.9s ease-out forwards;z-index:9999;}}
+/* ═══ PANELS ═══ */
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.2rem;margin-bottom:.9rem}
+.panel-title{font-family:'Cinzel Decorative',serif;font-size:.68rem;color:var(--civ-b);
+  letter-spacing:.15em;text-transform:uppercase;margin-bottom:.85rem;padding-bottom:.48rem;
+  border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.42rem}
+.panel-title::before{content:'◆';color:var(--gold);font-size:.5rem}
+.subtitle{font-size:.67rem;color:var(--text-dim);margin-bottom:.6rem}
 
-.card-en{position:absolute;top:3px;right:3px;background:#ffd700;color:#000;border-radius:50%;
-  width:16px;height:16px;font-size:9px;font-weight:900;display:flex;align-items:center;justify-content:center;}
-.card-emoji{text-align:center;font-size:22px;margin:2px 0;}
-.card-name{font-size:9px;font-weight:700;text-align:center;line-height:1.2;}
-.card-stats{display:flex;justify-content:space-between;font-size:9px;font-weight:700;}
-.card-atk{color:#ff6633;} .card-life{color:#44cc88;}
-.card-keywords{display:flex;flex-wrap:wrap;gap:2px;}
-.keyword-tag{font-size:7px;padding:1px 3px;border-radius:3px;font-weight:700;}
-.keyword-突撃{background:#cc3300;color:white;}
-.keyword-前衛{background:#336600;color:white;}
-.keyword-鼓動{background:#996600;color:white;}
-.keyword-連鎖{background:#6600cc;color:white;}
-.keyword-統率{background:#006666;color:white;}
-.keyword-天啓{background:#004488;color:white;}
-.keyword-不死{background:#440044;color:#ffaaff;}
-.keyword-加速{background:#224400;color:#aaffaa;}
-.hp-bar-wrap{background:#111;border-radius:3px;height:5px;overflow:hidden;margin-top:2px;}
-.hp-bar{height:100%;border-radius:3px;background:linear-gradient(90deg,#44cc88,#88ff44);transition:width 0.3s;}
-.hp-bar.low{background:linear-gradient(90deg,#cc4444,#ff6666);}
-.hp-bar.mid{background:linear-gradient(90deg,#cc8800,#ffcc00);}
+/* ═══ FORM ═══ */
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:.62rem;margin-bottom:.62rem}
+.form-group{display:flex;flex-direction:column;gap:.24rem}
+.form-group.full{grid-column:1/-1}
+label{font-size:.67rem;color:var(--text-dim);letter-spacing:.05em;font-family:'JetBrains Mono',monospace}
+input[type=text],input[type=number],select,textarea{
+  background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);
+  font-family:'Noto Serif JP',serif;font-size:.82rem;padding:.42rem .62rem;width:100%;
+  transition:border-color .2s,box-shadow .2s;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--civ-a);box-shadow:0 0 0 2px var(--civ-glow)}
+select option{background:#1a1a26}
+textarea{resize:vertical;min-height:52px}
 
-.partner-zone{background:var(--bg-panel);border:2px solid #554400;border-radius:8px;padding:8px;
-  text-align:center;min-height:150px;display:flex;flex-direction:column;align-items:center;gap:4px;}
-.partner-zone.active-partner{border-color:var(--gold);box-shadow:0 0 20px rgba(255,215,0,0.3);}
-.partner-card{width:90px;border-radius:6px;padding:6px;font-size:9px;cursor:default;}
-.partner-card.fire-card{background:linear-gradient(160deg,#2a1008,#1a0a04);border:2px solid #cc3300;}
-.partner-card.water-card{background:linear-gradient(160deg,#081828,#041018);border:2px solid #0066cc;}
+/* ═══ TAG CHIPS ═══ */
+.tags-area{display:flex;flex-wrap:wrap;gap:.3rem;background:var(--bg);
+  border:1px solid var(--border);border-radius:6px;padding:.4rem;min-height:38px;cursor:text;align-items:center}
+.tags-area:focus-within{border-color:var(--civ-a);box-shadow:0 0 0 2px var(--civ-glow)}
+.tag-chip{display:flex;align-items:center;gap:.22rem;
+  background:linear-gradient(135deg,var(--civ-glow),rgba(0,0,0,.08));
+  border:1px solid var(--civ-a);border-radius:20px;
+  padding:.1rem .1rem .1rem .5rem;font-size:.7rem;color:var(--civ-b);
+  font-family:'JetBrains Mono',monospace;white-space:nowrap}
+.tag-del{width:15px;height:15px;display:flex;align-items:center;justify-content:center;
+  background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.25);border-radius:50%;
+  cursor:pointer;color:var(--red);font-size:.58rem;transition:all .15s;flex-shrink:0}
+.tag-del:hover{background:rgba(248,113,113,.3)}
+.tag-input{background:transparent;border:none;color:var(--text);font-size:.76rem;
+  flex:1;min-width:65px;outline:none;padding:0;font-family:'Noto Serif JP',serif}
 
-.mana-zone{background:var(--bg-panel);border:1px solid var(--border);border-radius:8px;padding:8px;}
-.mana-count{font-size:22px;font-weight:900;color:var(--mana-color);font-family:'Cinzel',serif;text-shadow:0 0 10px rgba(74,222,128,0.5);}
-.mana-icons{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px;}
-.mana-pip{width:14px;height:14px;border-radius:50%;background:var(--mana-color);box-shadow:0 0 5px rgba(74,222,128,0.5);}
-.mana-pip.used{background:#333;box-shadow:none;}
+/* ═══ TAG TEXT INPUT (for search/resonance) ═══ */
+.tag-text-wrap{display:flex;gap:.4rem;align-items:center}
+.tag-text-wrap input{flex:1}
+.tag-suggest{position:relative}
+.tag-suggest-list{position:absolute;top:100%;left:0;right:0;background:#1a1a2e;
+  border:1px solid var(--civ-a);border-radius:6px;z-index:999;display:none;
+  box-shadow:0 4px 16px rgba(0,0,0,.5);overflow:hidden}
+.tag-suggest-list.open{display:block}
+.tag-suggest-item{padding:.38rem .6rem;font-size:.75rem;cursor:pointer;color:var(--text);
+  font-family:'JetBrains Mono',monospace;transition:background .12s}
+.tag-suggest-item:hover{background:var(--civ-glow);color:var(--civ-b)}
 
-.hand-zone{display:flex;gap:6px;flex-wrap:wrap;padding:8px;background:var(--bg-panel);
-  border:1px solid var(--border);border-radius:8px;min-height:70px;width:100%;box-sizing:border-box;overflow-x:hidden;}
-.hand-card{width:68px;min-height:90px;border-radius:6px;border:2px solid #333;padding:4px;
-  font-size:8px;cursor:pointer;transition:all 0.2s;position:relative;display:flex;flex-direction:column;gap:2px;flex-shrink:0;}
-.hand-card.fire-card{background:linear-gradient(160deg,#2a1008,#1a0a04);border-color:#883300;}
-.hand-card.water-card{background:linear-gradient(160deg,#081828,#041018);border-color:#004466;}
-.hand-card.playable{border-color:var(--gold)!important;box-shadow:0 0 10px rgba(255,215,0,0.4);}
-.hand-card.playable:hover{transform:translateY(-5px);box-shadow:0 0 18px rgba(255,215,0,0.7);}
-.hand-card.mana-target{border-color:var(--mana-color)!important;box-shadow:0 0 8px rgba(74,222,128,0.3);}
-.hand-card.mana-target:hover{transform:translateY(-3px);}
-.card-type-badge{font-size:7px;padding:1px 3px;border-radius:2px;font-weight:700;align-self:flex-start;}
-.monster-badge{background:#883300;color:#ffcc88;}
-.spell-badge{background:#330066;color:#cc88ff;}
+/* ═══ TOOLTIP ═══ */
+.has-tip{position:relative}
+.tip-bubble{display:none;position:absolute;bottom:calc(100% + 7px);left:0;
+  background:#1a1a2e;border:1px solid var(--civ-a);border-radius:8px;padding:.48rem .65rem;
+  font-size:.65rem;color:var(--text);line-height:1.6;white-space:normal;width:224px;
+  z-index:9999;pointer-events:none;box-shadow:0 4px 20px rgba(0,0,0,.6)}
+.tip-bubble::after{content:'';position:absolute;top:100%;left:16px;
+  border:6px solid transparent;border-top-color:var(--civ-a)}
+.has-tip:hover .tip-bubble{display:block}
 
-.info-panel{background:var(--bg-panel);border:1px solid var(--border);border-radius:8px;padding:8px;font-size:11px;}
-.player-stats{display:flex;flex-direction:column;gap:4px;}
-.stat-row{display:flex;align-items:center;justify-content:space-between;gap:6px;}
-.stat-label{font-size:10px;color:var(--text-dim);}
-.stat-value{font-weight:700;font-size:13px;font-family:'Cinzel',serif;}
-.stat-value.fire{color:var(--fire);} .stat-value.water{color:var(--water);}
-.stat-value.gold{color:var(--gold);} .stat-value.shield{color:var(--shield-color);}
-.stat-value.mana{color:var(--mana-color);}
+/* ═══ ABILITY GRID ═══ */
+.ability-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(138px,1fr));gap:.38rem}
+.ability-item{background:var(--bg);border:1px solid var(--border);border-radius:8px;
+  padding:.42rem .52rem;cursor:pointer;transition:border-color .15s,background .15s;
+  display:flex;flex-direction:column;gap:.2rem;position:relative}
+.ability-item:hover{border-color:var(--civ-a);background:var(--civ-glow)}
+.ability-item.active{border-color:var(--civ-b);background:var(--civ-glow)}
+.ability-header{display:flex;align-items:center;justify-content:space-between;gap:.28rem}
+.aname{font-size:.72rem;font-weight:700;color:var(--text)}
+.acost{font-size:.59rem;color:var(--gold);font-family:'JetBrains Mono',monospace;white-space:nowrap}
+.ability-extra{display:none;flex-direction:column;gap:.22rem;margin-top:.08rem}
+.ability-item.active .ability-extra{display:flex}
+.ability-extra label{font-size:.6rem}
+.ability-extra input,.ability-extra select,.ability-extra .tag-text-input{font-size:.7rem;padding:.18rem .28rem}
+.ab-warn{font-size:.59rem;color:var(--warn);font-family:'JetBrains Mono',monospace;display:none}
+.ab-warn.show{display:block}
 
-.controls{background:var(--bg-panel);border:1px solid var(--border);border-radius:8px;padding:10px;
-  display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
-.phase-indicator{font-family:'Cinzel',serif;font-size:12px;color:var(--gold);
-  padding:4px 10px;border:1px solid var(--gold);border-radius:20px;width:100%;text-align:center;}
-.action-hint{font-size:10px;color:#aaaacc;width:100%;text-align:center;min-height:28px;line-height:1.4;}
+/* ═══ TRIGGERED EFFECTS ═══ */
+.triggered-list{display:flex;flex-direction:column;gap:.6rem}
+.triggered-item{background:var(--bg);border:1px solid var(--border);border-radius:8px;
+  padding:.65rem .65rem .52rem;position:relative}
+.triggered-item.has-warn{border-color:rgba(251,191,36,.45)}
+.ti-grid{display:grid;grid-template-columns:1fr 1fr;gap:.42rem;margin-bottom:.32rem}
+.ti-params{display:grid;grid-template-columns:1fr 1fr;gap:.42rem;margin-top:.38rem}
+.ti-params.hidden,.ti-tag-row.hidden{display:none}
+.ti-tag-row{margin-top:.38rem}
+.ti-preview{font-size:.62rem;color:var(--civ-b);font-family:'JetBrains Mono',monospace;
+  margin-top:.34rem;padding:.26rem .44rem;background:var(--civ-glow);border-radius:4px;line-height:1.5}
+.ti-warn{font-size:.61rem;color:var(--warn);margin-top:.26rem;padding:.22rem .4rem;
+  background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.22);border-radius:4px;display:none}
+.ti-warn.show{display:block}
+.remove-btn{position:absolute;top:.38rem;right:.38rem;background:rgba(248,113,113,.08);
+  border:1px solid rgba(248,113,113,.25);color:var(--red);border-radius:4px;
+  padding:.05rem .32rem;cursor:pointer;font-size:.65rem;transition:background .15s}
+.remove-btn:hover{background:rgba(248,113,113,.2)}
+.add-btn{display:flex;align-items:center;gap:.35rem;background:var(--civ-glow);
+  border:1px dashed var(--civ-a);color:var(--civ-b);border-radius:8px;padding:.5rem .9rem;
+  cursor:pointer;font-size:.76rem;width:100%;justify-content:center;
+  transition:filter .2s;margin-top:.42rem;font-family:'Noto Serif JP',serif}
+.add-btn:hover{filter:brightness(1.35)}
 
-.btn{padding:7px 14px;border:none;border-radius:6px;font-family:'Noto Sans JP',sans-serif;
-  font-size:12px;font-weight:700;cursor:pointer;transition:all 0.15s;width:100%;}
-.btn:active{transform:scale(0.96);}
-.btn-primary{background:linear-gradient(135deg,#cc2200,#ff4400);color:white;box-shadow:0 2px 10px rgba(255,68,0,0.4);}
-.btn-primary:hover{background:linear-gradient(135deg,#dd3300,#ff5500);}
-.btn-primary:disabled{background:#333;color:#666;cursor:not-allowed;box-shadow:none;}
-.btn-secondary{background:linear-gradient(135deg,#223355,#334466);color:#88bbdd;border:1px solid #446688;}
-.btn-secondary:hover{background:linear-gradient(135deg,#334466,#445577);}
-.btn-secondary:disabled{opacity:0.4;cursor:not-allowed;}
-.btn-attack{background:linear-gradient(135deg,#884400,#cc6600);color:#ffcc88;border:1px solid #cc6600;}
-.btn-attack:hover{background:linear-gradient(135deg,#aa5500,#dd7700);}
-.btn-attack:disabled{opacity:0.4;cursor:not-allowed;}
-.btn-end{background:linear-gradient(135deg,#111133,#222244);color:#8888cc;border:1px solid #444488;}
-.btn-mana{background:linear-gradient(135deg,#1a3a1a,#2a5a2a);color:var(--mana-color);border:1px solid #4ade80;}
-.btn-mana:disabled{opacity:0.3;cursor:not-allowed;}
-.btn-play{background:linear-gradient(135deg,#3a1a00,#5a2a00);color:#ffaa66;border:1px solid #ff6600;}
-.btn-play:disabled{opacity:0.3;cursor:not-allowed;}
+/* ═══ WARN BANNER ═══ */
+.warn-banner{background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.28);
+  border-radius:8px;padding:.45rem .7rem;font-size:.68rem;color:var(--warn);
+  margin-bottom:.7rem;display:none}
+.warn-banner.show{display:block}
 
-.log-panel{background:#050508;border:1px solid var(--border);border-radius:8px;padding:8px 10px;
-  height:140px;overflow-y:auto;font-size:11px;font-family:monospace;line-height:1.7;}
-.log-entry{padding:1px 0;border-bottom:1px solid #111;}
-.log-system{color:#8888cc;} .log-player{color:#ff8866;} .log-cpu{color:#66bbff;}
-.log-damage{color:#ff3355;} .log-shield{color:var(--shield-color);}
-.log-strigger{color:var(--gold);font-weight:700;}
-.log-chain{color:#ffdd00;font-weight:700;}
-.log-win{color:var(--gold);font-weight:700;font-size:13px;}
-.log-special{color:#cc88ff;}
-.log-effect{color:#88ffcc;}
+/* ═══ CARD PREVIEW ═══ */
+.card-preview{background:linear-gradient(160deg,#1a1228 0%,#0f0f1a 100%);
+  border:2px solid var(--civ-a);border-radius:14px;padding:.95rem;position:relative;
+  overflow:hidden;box-shadow:0 0 28px var(--civ-glow),inset 0 0 38px rgba(0,0,0,.4);
+  min-height:460px;display:flex;flex-direction:column;transition:border-color .4s,box-shadow .4s}
+.card-preview::before{content:'';position:absolute;inset:0;
+  background:repeating-linear-gradient(45deg,rgba(255,255,255,.01) 0,rgba(255,255,255,.01) 1px,transparent 0,transparent 50%);
+  background-size:8px 8px;pointer-events:none}
+.card-preview::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,transparent,var(--civ-a),var(--civ-b),var(--civ-a),transparent);opacity:.9}
+.cp-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.6rem}
+.cp-name{font-family:'Cinzel Decorative',serif;font-size:clamp(.72rem,2vw,.9rem);
+  color:var(--civ-b);text-shadow:0 0 10px var(--civ-glow);max-width:74%;line-height:1.3;word-break:break-all}
+.cp-cost{background:linear-gradient(135deg,var(--civ-a),var(--civ-b));border-radius:50%;
+  width:34px;height:34px;display:flex;align-items:center;justify-content:center;
+  font-family:'Cinzel Decorative',serif;font-size:.9rem;font-weight:700;color:#fff;flex-shrink:0;
+  box-shadow:0 0 12px var(--civ-glow)}
+.cp-art{background:linear-gradient(135deg,var(--civ-glow),rgba(0,0,0,.15));
+  border:1px solid rgba(255,255,255,.06);border-radius:8px;height:110px;
+  display:flex;align-items:center;justify-content:center;margin-bottom:.6rem;position:relative;overflow:hidden}
+.cp-art-bg{position:absolute;inset:0;
+  background:radial-gradient(ellipse at 30% 50%,var(--civ-glow),transparent 60%),
+             radial-gradient(ellipse at 70% 50%,var(--civ-glow),transparent 60%)}
+.cp-art-icon{font-size:3.2rem;position:relative;z-index:1;filter:drop-shadow(0 0 8px var(--civ-glow))}
+.cp-type-bar{background:var(--civ-glow);border:1px solid var(--civ-a);border-radius:4px;
+  padding:.15rem .52rem;font-size:.63rem;color:var(--civ-b);letter-spacing:.1em;
+  text-align:center;margin-bottom:.48rem;font-family:'JetBrains Mono',monospace}
+.cp-stats{display:flex;gap:.38rem;margin-bottom:.6rem}
+.cp-stat{flex:1;background:rgba(0,0,0,.28);border:1px solid var(--border);border-radius:6px;padding:.32rem;text-align:center}
+.cp-stat .slabel{font-size:.55rem;color:var(--text-dim);font-family:'JetBrains Mono',monospace;letter-spacing:.1em}
+.cp-stat .sval{font-size:1.05rem;font-weight:700;font-family:'Cinzel Decorative',serif}
+.cp-stat.atk .sval{color:var(--red)}.cp-stat.hp .sval{color:var(--green)}.cp-stat.base .sval{color:var(--blue)}
+.cp-text{background:rgba(0,0,0,.18);border:1px solid var(--border);border-radius:6px;
+  padding:.48rem .62rem;font-size:.68rem;color:var(--text);line-height:1.7;
+  flex:1;white-space:pre-line;overflow-y:auto;max-height:185px}
+.cp-text:empty::before{content:'効果テキストが表示されます';color:var(--text-dim);font-style:italic}
+.cp-tags{display:flex;flex-wrap:wrap;gap:.22rem;margin-top:.48rem}
+.cp-tag{background:var(--civ-glow);border:1px solid var(--civ-a);border-radius:20px;
+  padding:.06rem .42rem;font-size:.6rem;color:var(--civ-b);font-family:'JetBrains Mono',monospace}
 
-.cpu-hand-back{width:44px;height:60px;border-radius:5px;background:linear-gradient(135deg,#0a1020,#1a2040);
-  border:1px solid #224;display:flex;align-items:center;justify-content:center;font-size:18px;color:#334;}
+/* ═══ COST BAR ═══ */
+.cost-bar{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:.8rem .95rem;margin-bottom:.9rem}
+.cost-row{display:flex;justify-content:space-between;align-items:center;font-size:.7rem;
+  padding:.14rem 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.cost-row:last-child{border-bottom:none}
+.cost-row .clabel{color:var(--text-dim);font-family:'JetBrains Mono',monospace}
+.cost-row .cval{font-family:'JetBrains Mono',monospace;font-weight:600}
+.cost-row.total{margin-top:.3rem;padding-top:.45rem;border-top:1px solid var(--border)}
+.cost-row.total .clabel{color:var(--text);font-size:.78rem}
+.cost-row.total .cval{color:var(--gold);font-size:.95rem}
 
-/* ===== OVERLAYS ===== */
-.overlay-base{position:fixed;top:0;left:0;right:0;bottom:0;display:none;
-  align-items:center;justify-content:center;z-index:200;}
+/* ═══ BUTTONS ═══ */
+.btn{padding:.55rem .88rem;border-radius:8px;font-size:.76rem;font-family:'Noto Serif JP',serif;
+  cursor:pointer;border:none;transition:all .2s;display:inline-flex;align-items:center;justify-content:center;gap:.32rem;font-weight:700}
+.btn-primary{background:linear-gradient(135deg,var(--civ-a),var(--civ-b));color:#fff;box-shadow:0 2px 10px var(--civ-glow)}
+.btn-primary:hover{filter:brightness(1.14);transform:translateY(-1px)}
+.btn-secondary{background:rgba(245,197,24,.08);border:1px solid rgba(245,197,24,.26);color:var(--gold)}
+.btn-secondary:hover{background:rgba(245,197,24,.15)}
+.btn-danger{background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.28);color:var(--red)}
+.btn-danger:hover{background:rgba(248,113,113,.2)}
+.btn-success{background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.3);color:var(--green)}
+.btn-success:hover{background:rgba(74,222,128,.2)}
+.btn-full{width:100%;justify-content:center}
+.btn-row{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.6rem}
 
-/* アクション演出 */
-.action-overlay{background:rgba(0,0,0,0.0);pointer-events:none;}
-.action-banner{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
-  font-family:'Cinzel',serif;font-size:32px;font-weight:900;text-shadow:0 0 30px currentColor;
-  pointer-events:none;z-index:500;animation:banner-flash 1.2s ease-out forwards;opacity:0;}
-@keyframes banner-flash{0%{opacity:0;transform:translate(-50%,-50%) scale(0.5);}
-  20%{opacity:1;transform:translate(-50%,-50%) scale(1.1);}
-  60%{opacity:1;transform:translate(-50%,-50%) scale(1);}
-  100%{opacity:0;transform:translate(-50%,-50%) scale(0.9);}}
+/* ═══ DECK BUILDER ═══ */
+.deck-page{max-width:1280px;margin:0 auto;padding:1.4rem;position:relative;z-index:1}
+.deck-grid{display:grid;grid-template-columns:1fr 320px;gap:1.4rem;align-items:start}
+@media(max-width:900px){.deck-grid{grid-template-columns:1fr}}
 
-/* 鼓動 */
-.strigger-overlay{background:rgba(0,0,0,0.75);}
-.strigger-popup{background:linear-gradient(135deg,#1a1400,#2a2000);border:3px solid var(--gold);
-  border-radius:12px;padding:24px 32px;text-align:center;box-shadow:0 0 60px rgba(255,215,0,0.5);
-  animation:pop-in 0.4s ease-out;}
-.strigger-title{font-family:'Cinzel',serif;font-size:28px;color:var(--gold);
-  text-shadow:0 0 30px rgba(255,215,0,0.8);margin-bottom:8px;}
-.strigger-sub{font-size:13px;color:#ccbbaa;}
+/* card list in deck */
+.deck-card-list{display:flex;flex-direction:column;gap:.5rem}
+.deck-card-row{background:var(--bg);border:1px solid var(--border);border-radius:8px;
+  padding:.55rem .7rem;display:grid;grid-template-columns:1fr auto auto;gap:.5rem;align-items:center}
+.deck-card-row:hover{border-color:var(--civ-a)}
+.dcr-name{font-size:.8rem;font-weight:700;color:var(--text)}
+.dcr-sub{font-size:.63rem;color:var(--text-dim);font-family:'JetBrains Mono',monospace;margin-top:.1rem}
+.dcr-badge{font-size:.65rem;color:var(--civ-b);background:var(--civ-glow);border:1px solid var(--civ-a);
+  border-radius:4px;padding:.08rem .35rem;font-family:'JetBrains Mono',monospace}
+.count-ctrl{display:flex;align-items:center;gap:.35rem}
+.count-btn{width:24px;height:24px;border-radius:50%;background:var(--surface);border:1px solid var(--border);
+  color:var(--text);cursor:pointer;font-size:.8rem;display:flex;align-items:center;justify-content:center;
+  transition:all .15s;flex-shrink:0}
+.count-btn:hover{border-color:var(--civ-a);color:var(--civ-b)}
+.count-num{font-family:'JetBrains Mono',monospace;font-size:.8rem;min-width:18px;text-align:center}
+/* deck stats */
+.deck-stats{display:flex;gap:.55rem;margin-bottom:.9rem;flex-wrap:wrap}
+.deck-stat{flex:1;min-width:70px;background:var(--bg);border:1px solid var(--border);
+  border-radius:8px;padding:.45rem .55rem;text-align:center}
+.deck-stat .ds-label{font-size:.58rem;color:var(--text-dim);font-family:'JetBrains Mono',monospace}
+.deck-stat .ds-val{font-size:1.1rem;font-weight:700;font-family:'Cinzel Decorative',serif;color:var(--civ-b)}
+.deck-stat .ds-val.warn{color:var(--warn)}
+.deck-stat .ds-val.ok{color:var(--green)}
 
-/* 連鎖 */
-.chain-overlay{background:rgba(0,0,0,0.8);}
-.chain-popup{background:linear-gradient(135deg,#0a0020,#1a0040);border:3px solid #aa44ff;
-  border-radius:12px;padding:24px 32px;text-align:center;box-shadow:0 0 60px rgba(170,68,255,0.6);
-  animation:pop-in 0.3s ease-out;}
-.chain-title{font-family:'Cinzel',serif;font-size:26px;color:#dd88ff;
-  text-shadow:0 0 30px rgba(170,68,255,0.8);margin-bottom:8px;}
+/* JSON preview */
+.json-preview{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:.6rem;
+  font-family:'JetBrains Mono',monospace;font-size:.6rem;color:var(--text-dim);
+  white-space:pre;overflow:auto;max-height:180px;display:none;line-height:1.5}
+.json-preview.visible{display:block}
 
-/* 統率/天啓めくり */
-.reveal-overlay{background:rgba(0,0,0,0.85);}
-.reveal-popup{background:linear-gradient(135deg,#080818,#100828);border:3px solid #00ccff;
-  border-radius:12px;padding:28px 36px;text-align:center;box-shadow:0 0 60px rgba(0,204,255,0.4);
-  animation:pop-in 0.3s ease-out;min-width:280px;}
-.reveal-title{font-family:'Cinzel',serif;font-size:20px;color:#88ddff;margin-bottom:16px;}
-.reveal-card-display{font-size:48px;margin:10px 0;}
-.reveal-card-name{font-size:16px;font-weight:700;margin:6px 0;}
-.reveal-result{font-size:13px;padding:8px 16px;border-radius:6px;margin-top:10px;font-weight:700;}
-.reveal-hit{background:rgba(0,255,100,0.2);color:#44ff88;border:1px solid #44ff88;}
-.reveal-miss{background:rgba(255,100,0,0.2);color:#ff8844;border:1px solid #ff8844;}
+/* scrollbar */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--civ-a)}
 
-/* ゲームオーバー */
-.gameover-overlay{background:rgba(0,0,0,0.88);}
-.gameover-popup{background:linear-gradient(135deg,#0a0800,#1a1200);border:3px solid var(--gold);
-  border-radius:16px;padding:40px 60px;text-align:center;animation:pop-in 0.5s ease-out;}
-.gameover-title{font-family:'Cinzel',serif;font-size:48px;color:var(--gold);
-  text-shadow:0 0 40px rgba(255,215,0,0.6);margin-bottom:16px;}
-
-/* カード詳細 */
-.card-detail-overlay{background:rgba(0,0,0,0.6);}
-.card-detail-popup{background:linear-gradient(160deg,#1a1a30,#0e0e20);border:2px solid #446;
-  border-radius:12px;padding:20px 24px;min-width:240px;max-width:320px;
-  animation:pop-in 0.2s ease-out;box-shadow:0 8px 40px rgba(0,0,0,0.9);}
-.card-detail-popup.fire-theme{border-color:#cc3300;box-shadow:0 8px 40px rgba(255,69,0,0.3);}
-.card-detail-popup.water-theme{border-color:#006699;box-shadow:0 8px 40px rgba(0,191,255,0.3);}
-.detail-header{display:flex;align-items:center;gap:10px;margin-bottom:14px;}
-.detail-emoji{font-size:36px;}
-.detail-name{font-size:15px;font-weight:900;line-height:1.2;}
-.detail-stats{display:flex;gap:12px;margin-bottom:10px;font-size:13px;font-weight:700;}
-.detail-effect{font-size:11px;color:#ccccdd;line-height:1.6;padding:8px;
-  background:rgba(255,255,255,0.04);border-radius:6px;border-left:2px solid #446;
-  margin-bottom:14px;min-height:36px;}
-.detail-actions{display:flex;flex-direction:column;gap:6px;}
-.detail-actions .btn{font-size:12px;padding:8px;}
-
-/* カード対象選択 */
-.card-select-modal{background:rgba(0,0,0,0.7);}
-.card-select-panel{background:var(--bg-panel);border:2px solid var(--gold);border-radius:12px;
-  padding:16px;max-width:500px;width:90%;}
-.card-select-title{font-size:14px;font-weight:700;color:var(--gold);margin-bottom:10px;text-align:center;}
-.card-select-list{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;}
-.select-card-btn{padding:6px 10px;border-radius:6px;border:1px solid #446;background:#1a1a30;
-  color:var(--text);font-size:11px;cursor:pointer;transition:all 0.15s;}
-.select-card-btn:hover{background:#2a2a50;border-color:var(--gold);}
-
-@keyframes pop-in{from{transform:scale(0.5) rotate(-5deg);opacity:0;}to{transform:scale(1) rotate(0);opacity:1;}}
-@keyframes partner-ready{from{box-shadow:0 0 12px rgba(0,255,136,0.6);}to{box-shadow:0 0 28px rgba(0,255,136,1),0 0 8px rgba(255,255,255,0.4);}}
-.log-panel::-webkit-scrollbar{width:4px;}
-.log-panel::-webkit-scrollbar-track{background:#111;}
-.log-panel::-webkit-scrollbar-thumb{background:#334;border-radius:2px;}
+/* empty state */
+.empty-state{text-align:center;padding:2rem;color:var(--text-dim);font-size:.8rem}
+.empty-state .es-icon{font-size:2.5rem;margin-bottom:.5rem;opacity:.4}
 </style>
 </head>
-<body>
-<div class="game-wrapper">
-  <div class="title-bar">⚔ ORICA BATTLER — テストプレイ版 v2 ⚔</div>
+<body class="civ-None">
 
-  <div class="field" id="gameField">
-    <!-- LEFT: CPU info -->
-    <div style="grid-column:1;grid-row:1/4;display:flex;flex-direction:column;gap:6px;">
-      <div class="info-panel player-stats">
-        <div class="zone-title">💧 CPU（水文明）</div>
-        <div class="stat-row"><span class="stat-label">シールド</span><span class="stat-value water" id="cpuShieldCount">5</span></div>
-        <div class="stat-row"><span class="stat-label">手札</span><span class="stat-value water" id="cpuHandCount">5</span></div>
-        <div class="stat-row"><span class="stat-label">マナ</span><span class="stat-value mana" id="cpuManaDisplay">0/0</span></div>
-        <div class="stat-row"><span class="stat-label">墓地</span><span class="stat-value" id="cpuGraveCount">0</span></div>
-        <div class="stat-row"><span class="stat-label">デッキ</span><span class="stat-value" id="cpuDeckCount">30</span></div>
+<!-- ═══════════════════════════════════════ HEADER ═══ -->
+<header>
+  <h1>✦ Orica Generator ✦ <span class="v-badge">v4.0</span></h1>
+  <p>タグ連動 / デッキ一括エクスポート対応</p>
+</header>
+
+<!-- ═══ TAB NAV ═══ -->
+<div class="tab-nav">
+  <button class="tab-btn active" onclick="switchTab('card')">🃏 カード作成</button>
+  <button class="tab-btn" onclick="switchTab('deck')" id="deckTabBtn">
+    🗂 デッキ管理 <span class="tab-count" id="deckCount">0</span>
+  </button>
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     PAGE: CARD CREATOR
+══════════════════════════════════════════════════ -->
+<div class="page active" id="page-card">
+<div class="app">
+
+  <!-- LEFT FORM -->
+  <div class="form-col">
+
+    <!-- Basic Info -->
+    <div class="panel">
+      <div class="panel-title">基本情報</div>
+      <div class="form-row">
+        <div class="form-group full">
+          <label>カード名 *</label>
+          <input type="text" id="cardName" placeholder="例: 炎の守護龍" oninput="update()">
+        </div>
       </div>
-      <div class="zone-panel" id="cpuPartnerPanel">
-        <div class="zone-title">🌊 パートナー</div>
-        <div id="cpuPartnerDisplay"></div>
+      <div class="form-row">
+        <div class="form-group"><label>ATK（攻撃力）</label><input type="number" id="atkVal" value="3" min="0" max="99" oninput="update()"></div>
+        <div class="form-group"><label>HP（体力）</label><input type="number" id="hpVal" value="5" min="1" max="99" oninput="update()"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>タイプ</label>
+          <select id="cardType" onchange="update()">
+            <option value="Monster">Monster</option>
+            <option value="Spell">Spell</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>文明</label>
+          <select id="civType" onchange="updateCiv()">
+            <option value="None">None（未設定）</option>
+            <option value="Fire">Fire 🔥</option>
+            <option value="Water">Water 💧</option>
+            <option value="Nature">Nature 🌿</option>
+            <option value="Darkness">Darkness 🌑</option>
+            <option value="Light">Light ✨</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>タグ（Enterで追加）</label>
+        <div class="tags-area" id="tagsArea" onclick="focusTagInput(event)">
+          <input type="text" id="tagInput" class="tag-input" placeholder="ドラゴン、戦士…" onkeydown="handleTagInput(event)">
+        </div>
+        <div class="warn-banner" id="tagWarnBanner"></div>
       </div>
     </div>
 
-    <!-- CENTER: CPU area -->
-    <div class="field-center" style="grid-column:2;grid-row:1;display:flex;flex-direction:column;gap:4px;">
-      <div style="display:flex;gap:4px;padding:4px;justify-content:center;" id="cpuHandDisplay"></div>
-      <div class="shields-zone" id="cpuShields"></div>
-      <div class="zone-title" style="padding-left:8px;">CPU 場</div>
-      <div class="battlefield" id="cpuField"></div>
+    <!-- Static Abilities -->
+    <div class="panel">
+      <div class="panel-title">永続効果（常在アビリティ）</div>
+      <p class="subtitle">クリックで有効化 / ホバーで効果テキスト確認</p>
+      <div class="ability-grid" id="abilityGrid"></div>
     </div>
 
-    <!-- VS -->
-    <div style="grid-column:1/4;display:flex;align-items:center;gap:10px;">
-      <div style="flex:1;height:1px;background:linear-gradient(90deg,transparent,#2a2a4a,transparent);"></div>
-      <div style="font-size:11px;color:var(--text-dim);letter-spacing:2px;">VS</div>
-      <div style="flex:1;height:1px;background:linear-gradient(90deg,transparent,#2a2a4a,transparent);"></div>
+    <!-- Triggered Effects -->
+    <div class="panel">
+      <div class="panel-title">誘発効果</div>
+      <p class="subtitle">タグを使うアクション（サーチ・タグ付与）はテキスト入力欄が追加表示されます</p>
+      <div class="triggered-list" id="triggeredList"></div>
+      <button class="add-btn" onclick="addTriggered()">＋ 誘発効果を追加</button>
     </div>
 
-    <!-- CENTER: Player area -->
-    <div class="field-center" style="grid-column:2;grid-row:3/5;display:flex;flex-direction:column;gap:4px;">
-      <div class="zone-title" style="padding-left:8px;">プレイヤー 場</div>
-      <div class="battlefield" id="playerField"></div>
-      <div class="shields-zone" id="playerShields"></div>
+    <!-- Conditions -->
+    <div class="panel">
+      <div class="panel-title">発動条件（Conditions）</div>
+      <p class="subtitle">JSON の conditions フィールドに出力されます</p>
+      <div id="conditionsList"></div>
+      <button class="add-btn" onclick="addCondition()">＋ 条件を追加</button>
     </div>
 
-    <!-- RIGHT: Controls -->
-    <div style="grid-column:3;grid-row:1/5;display:flex;flex-direction:column;gap:6px;position:sticky;top:10px;min-width:0;overflow:hidden;">
-      <div class="info-panel player-stats">
-        <div class="zone-title">🔥 プレイヤー（火文明）</div>
-        <div class="stat-row"><span class="stat-label">シールド</span><span class="stat-value fire" id="playerShieldCount">5</span></div>
-        <div class="stat-row"><span class="stat-label">手札</span><span class="stat-value fire" id="playerHandCount">0</span></div>
-        <div class="stat-row"><span class="stat-label">マナ</span><span class="stat-value mana" id="playerManaDisplay">0/0</span></div>
-        <div class="stat-row"><span class="stat-label">墓地</span><span class="stat-value" id="playerGraveCount">0</span></div>
-        <div class="stat-row"><span class="stat-label">デッキ</span><span class="stat-value" id="playerDeckCount">30</span></div>
+    <!-- Flavor -->
+    <div class="panel">
+      <div class="panel-title">フレーバーテキスト（任意）</div>
+      <textarea id="flavorText" placeholder="カードの世界観を表す一文…" oninput="update()" style="height:52px"></textarea>
+    </div>
+
+  </div>
+
+  <!-- RIGHT PREVIEW -->
+  <div class="preview-col">
+
+    <div class="cost-bar">
+      <div class="cost-row"><span class="clabel">BaseCost ⌊(ATK+HP)/4⌋</span><span class="cval" id="baseCostVal">—</span></div>
+      <div class="cost-row"><span class="clabel">永続アビリティ合計</span><span class="cval" id="staticScore">—</span></div>
+      <div class="cost-row"><span class="clabel">誘発効果合計</span><span class="cval" id="triggerScore">—</span></div>
+      <div class="cost-row total"><span class="clabel">EN コスト（1〜10）</span><span class="cval" id="finalCostVal">—</span></div>
+    </div>
+
+    <div class="card-preview">
+      <div class="cp-header">
+        <div class="cp-name" id="previewName">カード名未設定</div>
+        <div class="cp-cost" id="previewCost">?</div>
       </div>
-      <div class="zone-panel" id="playerPartnerPanel">
-        <div class="zone-title">🔥 パートナー</div>
-        <div id="playerPartnerDisplay"></div>
+      <div class="cp-art"><div class="cp-art-bg"></div><div class="cp-art-icon" id="previewIcon">⚔️</div></div>
+      <div class="cp-type-bar" id="previewType">Monster / None</div>
+      <div class="cp-stats">
+        <div class="cp-stat atk"><div class="slabel">ATK</div><div class="sval" id="previewAtk">3</div></div>
+        <div class="cp-stat hp"><div class="slabel">HP</div><div class="sval" id="previewHp">5</div></div>
+        <div class="cp-stat base"><div class="slabel">BASE</div><div class="sval" id="previewBase">2</div></div>
       </div>
-      <div class="controls" style="flex-direction:column;align-items:stretch;">
-        <div class="phase-indicator" id="phaseIndicator">TURN 1</div>
-        <div class="action-hint" id="actionHint">準備中...</div>
-        <button class="btn btn-primary" id="btnMain" onclick="onMainBtn()" disabled>→ メインフェイズへ</button>
-        <button class="btn btn-attack" id="btnDeclareAttack" onclick="declareAttack()" disabled>攻撃宣言</button>
-        <button class="btn btn-secondary" id="btnCancelAction" onclick="cancelAction()" style="display:none;">キャンセル</button>
-        <button class="btn btn-end" id="btnEndTurn" onclick="endTurn()" disabled>⏩ ターン終了</button>
-        <button class="btn btn-secondary" onclick="restartGame()">最初から</button>
-      </div>
+      <div class="cp-text" id="previewText"></div>
+      <div class="cp-tags" id="previewTags"></div>
     </div>
 
-    <!-- PLAYER HAND -->
-    <div class="field-center" style="grid-column:2;grid-row:5;">
-      <div class="zone-title" style="padding:4px 8px;">手札（クリックでカード詳細）</div>
-      <div class="hand-zone" id="playerHand"></div>
+    <div class="btn-row" style="margin-top:.9rem">
+      <button class="btn btn-secondary" onclick="toggleJson()" style="flex:1">📋 JSON確認</button>
+      <button class="btn btn-primary" onclick="exportSingleJson()" style="flex:1">⬇ DL</button>
     </div>
-    <div style="grid-column:1;grid-row:5;">
-      <div class="mana-zone">
-        <div class="zone-title">マナゾーン</div>
-        <div class="mana-count" id="playerManaCount">0 EN</div>
-        <div class="mana-icons" id="playerManaIcons"></div>
+    <button class="btn btn-success btn-full" onclick="addToDeck()" style="margin-top:.5rem">＋ デッキに追加</button>
+    <div class="json-preview" id="jsonPreview"></div>
+
+  </div>
+
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     PAGE: DECK MANAGER
+══════════════════════════════════════════════════ -->
+<div class="page" id="page-deck">
+<div class="deck-page">
+<div class="deck-grid">
+
+  <!-- Deck Card List -->
+  <div>
+    <div class="panel">
+      <div class="panel-title">デッキリスト</div>
+      <div class="deck-stats">
+        <div class="deck-stat"><div class="ds-label">合計枚数</div><div class="ds-val" id="deckTotal">0</div></div>
+        <div class="deck-stat"><div class="ds-label">種類数</div><div class="ds-val" id="deckTypes">0</div></div>
+        <div class="deck-stat"><div class="ds-label">上限</div><div class="ds-val">40</div></div>
+        <div class="deck-stat"><div class="ds-label">残り</div><div class="ds-val" id="deckRemain">40</div></div>
+      </div>
+      <div id="deckCardList">
+        <div class="empty-state"><div class="es-icon">🃏</div>カード作成タブでカードを作り、<br>「デッキに追加」ボタンを押してください</div>
       </div>
     </div>
   </div>
 
-  <div class="log-panel" id="gameLog"></div>
-</div>
-
-<!-- 鼓動 -->
-<div class="overlay-base strigger-overlay" id="striggerOverlay" style="z-index:300;">
-  <div class="strigger-popup">
-    <div class="strigger-title">⚡ 鼓 動 発 動 ！</div>
-    <div class="strigger-sub" id="striggerText"></div>
-    <div style="font-size:11px;color:#aa9966;margin-top:8px;padding:6px 10px;background:rgba(255,255,255,0.05);border-radius:6px;max-width:280px;white-space:pre-line;" id="striggerEffect"></div>
-  </div>
-</div>
-
-<!-- 連鎖 -->
-<div class="overlay-base chain-overlay" id="chainOverlay" style="z-index:310;">
-  <div class="chain-popup">
-    <div class="chain-title">🔗 連 鎖 ！</div>
-    <div style="font-size:13px;color:#ccaaff;" id="chainText"></div>
-  </div>
-</div>
-
-<!-- 統率/天啓めくり -->
-<div class="overlay-base reveal-overlay" id="revealOverlay" style="z-index:320;">
-  <div class="reveal-popup">
-    <div style="font-size:11px;color:#668899;margin-bottom:4px;" id="revealSource">発動元：???</div>
-    <div class="reveal-title" id="revealTitle">デッキトップをめくる…</div>
-    <div class="reveal-card-display" id="revealEmoji">❓</div>
-    <div class="reveal-card-name" id="revealCardName">???</div>
-    <div class="reveal-result" id="revealResult"></div>
-    <button class="btn btn-secondary" style="margin-top:14px;width:auto;padding:8px 24px;" onclick="closeReveal()">OK</button>
-  </div>
-</div>
-
-<!-- ゲームオーバー -->
-<div class="overlay-base gameover-overlay" id="gameoverOverlay" style="z-index:400;">
-  <div class="gameover-popup">
-    <div class="gameover-title" id="gameoverTitle">GAME OVER</div>
-    <div style="font-size:16px;color:#ccbbaa;margin-bottom:20px;" id="gameoverSub"></div>
-    <button class="btn btn-primary" style="width:auto;padding:12px 32px;" onclick="restartGame()">もう一度プレイ</button>
-  </div>
-</div>
-
-<!-- カード詳細 -->
-<div class="overlay-base card-detail-overlay" id="cardDetailOverlay" style="z-index:250;" onclick="closeCardDetail(event)">
-  <div class="card-detail-popup" id="cardDetailPopup">
-    <div class="detail-header">
-      <div class="detail-emoji" id="detailEmoji">🔥</div>
-      <div>
-        <div class="detail-name" id="detailName">カード名</div>
-        <div style="font-size:10px;color:var(--text-dim);margin-top:2px;" id="detailType"></div>
+  <!-- Deck Meta -->
+  <div style="position:sticky;top:1.4rem">
+    <div class="panel">
+      <div class="panel-title">デッキ設定</div>
+      <div style="display:flex;flex-direction:column;gap:.55rem">
+        <div class="form-group">
+          <label>デッキ名</label>
+          <input type="text" id="deckName" value="サンプルデッキ" oninput="updateDeckPreview()">
+        </div>
+        <div class="form-group">
+          <label>プレイヤーID</label>
+          <input type="text" id="playerId" placeholder="player_001" oninput="updateDeckPreview()">
+        </div>
       </div>
     </div>
-    <div class="detail-stats" id="detailStats"></div>
-    <div class="detail-effect" id="detailEffect"></div>
-    <div class="detail-actions" id="detailActions"></div>
-  </div>
-</div>
 
-<!-- カード選択 -->
-<div class="overlay-base card-select-modal" id="cardSelectModal" style="z-index:260;">
-  <div class="card-select-panel">
-    <div class="card-select-title" id="cardSelectTitle">対象を選択</div>
-    <div class="card-select-list" id="cardSelectList"></div>
-    <div style="text-align:center;margin-top:10px;">
-      <button class="btn btn-secondary" style="width:auto;padding:6px 20px;" onclick="closeCardSelect()">キャンセル</button>
+    <div class="panel">
+      <div class="panel-title">エクスポート</div>
+      <p class="subtitle" style="margin-bottom:.8rem">ZIPに以下が含まれます：<br>📁 cards/ → カードJSON×枚数分<br>📄 deck.json → デッキ構成ファイル</p>
+      <button class="btn btn-primary btn-full" onclick="exportDeckZip()">⬇ ZIPをダウンロード</button>
+      <div class="btn-row" style="margin-top:.5rem">
+        <button class="btn btn-secondary" style="flex:1" onclick="toggleDeckJson()">📋 deck.json確認</button>
+        <button class="btn btn-danger" style="flex:1" onclick="clearDeck()">🗑 全クリア</button>
+      </div>
+      <div class="json-preview" id="deckJsonPreview" style="margin-top:.5rem"></div>
     </div>
   </div>
+
+</div>
+</div>
 </div>
 
+<!-- ══════════════════════════════════════════════════
+     SCRIPT
+══════════════════════════════════════════════════ -->
 <script>
-'use strict';
-// =====================================================
-// CARD DEFINITIONS
-// =====================================================
-let cardIdCounter = 0;
-const newId = () => ++cardIdCounter;
+/* ─────────────────────────────
+   MASTER DATA
+───────────────────────────── */
+const TAG_NONE = '（タグ未設定）';
 
-// --- キーワード説明 ---
-const KEYWORD_DESC = {
-  '突撃':'召喚したターンに攻撃できる',
-  '前衛':'相手はこのモンスターを優先して攻撃しなければならない',
-  '鼓動':'シールドから手札に加わった時、即座に無料で効果発動',
-  '連鎖':'召喚後デッキトップをめくり、同文明モンスターなら追加召喚（1回限り）',
-  '統率':'登場時にデッキトップをめくり、種族が同じなら即追加召喚',
-  '天啓':'登場時にデッキトップをめくり、スペルなら即発動',
-  '激昂':'このモンスターがダメージを受けるたび、受けた分だけATKが永続上昇する',
-  '封印':'このモンスターが場にいる間、相手全モンスターのATKを2下げる',
-  '加速':'このモンスターが場にいる間、自分の召喚コストが1少なくなる',
-};
-
-// --- 火文明デッキ ---
-const FIRE_MONSTERS = [
-  { name:'火炎の精霊',   civ:'火', type:'monster', en:1, atk:1, life:2,  keywords:['突撃'],
-    effect:'【突撃】\n登場時:自分の他のモンスター1体のATK+1（このターン）', spellType:'', emoji:'🔥',
-    onSummon: (who)=>{ buffRandomAlly(who, 1, '火炎の精霊'); } },
-  { name:'灼熱の突撃兵', civ:'火', type:'monster', en:2, atk:2, life:3,  keywords:['突撃','連鎖'],
-    effect:'【突撃】【連鎖】召喚後デッキトップをめくり、火文明モンスターなら追加召喚', spellType:'', emoji:'🗡️',
-    onSummon: null },
-  { name:'炎獣ファング',  civ:'火', type:'monster', en:2, atk:3, life:4,  keywords:['突撃','激昂'],
-    effect:'【突撃】【激昂】ダメージを受けるたびATKがその分永続上昇\n登場時:相手モンスター1体に3ダメージ', spellType:'', emoji:'🐺',
-    onSummon: (who)=>{ damageOneTarget2(who, who==='player'?'cpu':'player', 3, '炎獣ファング'); } },
-  { name:'炎の守護者',   civ:'火', type:'monster', en:3, atk:4, life:10, keywords:['前衛','天啓'],
-    effect:'【前衛】【天啓】登場時デッキトップをめくり、スペルなら即発動', spellType:'', emoji:'🛡️',
-    onSummon: null },
-  { name:'紅蓮の戦士',   civ:'火', type:'monster', en:4, atk:7, life:10, keywords:['突撃','統率'],
-    effect:'【突撃】【統率】デッキトップをめくり同種族（ウォリアー）なら追加召喚\n登場時:相手モンスター1体に6ダメージ', spellType:'', emoji:'⚔️',
-    tribe:'ウォリアー',
-    onSummon: (who)=>{ damageOneTarget2(who, who==='player'?'cpu':'player', 6, '紅蓮の戦士'); } },
-  { name:'業火の巨人',   civ:'火', type:'monster', en:5, atk:9, life:13, keywords:['激昂'],
-    effect:'【激昂】ダメージを受けるたびATKがその分永続上昇\n登場時:相手モンスター全体に5ダメージ＋相手シールド1枚ブレイク', spellType:'', emoji:'👹',
-    onSummon: async (who)=>{ await spreadDamage(who==='player'?'cpu':'player', 5, '業火の巨人'); await breakShield(who==='player'?'cpu':'player','業火の巨人'); } },
+// needsTag=true → アビリティ有効化時にタグ自由入力欄を表示
+const STATIC_ABILITIES = [
+  { id:'vanguard',   name:'前衛',        score:1.5, hasX:false, needsTag:false,
+    tip:'相手モンスターはこのモンスターを優先して攻撃しなければならない。',
+    textFn:(x,tag)=>'【前衛】相手モンスターはこのモンスターを優先して攻撃しなければならない。'},
+  { id:'stealth',    name:'隠密',        score:1.5, hasX:false, needsTag:false,
+    tip:'このモンスターは相手の「前衛」を無視して攻撃できる。',
+    textFn:(x,tag)=>'【隠密】このモンスターは相手の「前衛」を無視して攻撃できる。'},
+  { id:'jinso',      name:'呪装',        score:2.0, hasX:false, needsTag:false,
+    tip:'このモンスターは相手のスペルの対象にならない。',
+    textFn:(x,tag)=>'【呪装】このモンスターは相手のスペルの対象にならない。'},
+  { id:'transcend',  name:'超越',        score:4.0, hasX:false, needsTag:false,
+    tip:'このモンスターは相手のスペルおよびモンスター効果の対象にならない。',
+    textFn:(x,tag)=>'【超越】このモンスターは相手のスペルおよびモンスター効果の対象にならない。'},
+  { id:'immovable',  name:'不動',        score:2.0, hasX:false, needsTag:false,
+    tip:'このモンスターは相手の効果によってフィールドを離れない。',
+    textFn:(x,tag)=>'【不動】このモンスターは相手の効果によってフィールドを離れない。'},
+  { id:'pierce',     name:'貫通',        score:3.0, hasX:false, needsTag:false,
+    tip:'戦闘で相手モンスターを破壊した時、相手のシールドを1枚破壊する。',
+    textFn:(x,tag)=>'【貫通】このモンスターが戦闘で相手モンスターを破壊した時、相手のシールドを1枚破壊する。'},
+  { id:'regen',      name:'再生',        score:1.0, hasX:true,  needsTag:false,
+    tip:'(x) 自分ターン開始時、このモンスターのHPを x 回復する。',
+    textFn:(x,tag)=>`【再生 ${x}】自分ターン開始時、このモンスターのHPを ${x} 回復する。`},
+  { id:'guard',      name:'堅守',        score:1.0, hasX:true,  needsTag:false,
+    tip:'(x) このモンスターが受けるあらゆるダメージを x 軽減する。',
+    textFn:(x,tag)=>`【堅守 ${x}】このモンスターが受けるあらゆるダメージを ${x} 軽減する。`},
+  { id:'amplify',    name:'増幅',        score:3.0, hasX:false, needsTag:false,
+    tip:'自分が与えるスペルおよび効果によるダメージをすべて +2 する。',
+    textFn:(x,tag)=>'【増幅】自分が与えるスペルおよび効果によるダメージをすべて +2 する。'},
+  { id:'majesty',    name:'威光',        score:2.0, hasX:false, needsTag:false,
+    tip:'相手モンスターは場に出たターン、攻撃宣言ができない。',
+    textFn:(x,tag)=>'【威光】相手モンスターは場に出たターン、攻撃宣言ができない。'},
+  { id:'jaki',       name:'邪気',        score:2.0, hasX:true,  needsTag:false,
+    tip:'(x) このモンスターが場にいる間、相手モンスターすべての最大HPを x 減少させる。',
+    textFn:(x,tag)=>`【邪気 ${x}】このモンスターが場にいる間、相手モンスターすべての最大HPを ${x} 減少させる。`},
+  // ★ 共鳴: x + タグ自由入力
+  { id:'resonance',  name:'共鳴',        score:0.5, hasX:true,  needsTag:true,
+    tip:'(タグ, x) 場・墓地にある「タグ」を持つカード1枚につき、自身のATK/HPを x 上昇する。',
+    textFn:(x,tag)=>`【共鳴：${tag||TAG_NONE}】場・墓地にある「${tag||TAG_NONE}」を持つカード1枚につき、自身のATK/HPを ${x} 上昇する。`},
+  { id:'randReduce', name:'ランダム軽減',score:2.0, hasX:true,  needsTag:false,
+    tip:'(x) 自身が受けるダメージを 0〜x の範囲でランダムに軽減する。',
+    textFn:(x,tag)=>`【ランダム軽減 ${x}】自身が受けるダメージを 0〜${x} の範囲でランダムに軽減する。`},
+  { id:'chainLogic', name:'連鎖の理',    score:4.0, hasX:false, needsTag:false,
+    tip:'自分の誘発効果が発動するたび、自身のATKを +1 する。',
+    textFn:(x,tag)=>'【連鎖の理】自分の誘発効果が発動するたび、自身のATKを +1 する。'},
 ];
 
-const FIRE_SPELLS = [
-  { name:'烈火の斬撃', civ:'火', type:'spell', en:1, keywords:['鼓動'],
-    effect:'【鼓動】\n相手モンスター1体に5ダメージ', emoji:'⚡', spellType:'damage_one', value:5 },
-  { name:'業炎の爆裂', civ:'火', type:'spell', en:2, keywords:['鼓動'],
-    effect:'【鼓動】\n相手モンスター全体に4ダメージ', emoji:'💢', spellType:'damage_all', value:4 },
-  { name:'ファイアボール', civ:'火', type:'spell', en:2, keywords:[],
-    effect:'相手モンスター1体に7ダメージ', emoji:'🎯', spellType:'damage_one', value:7 },
-  { name:'業炎の嵐',   civ:'火', type:'spell', en:3, keywords:[],
-    effect:'相手モンスター全体に4ダメージ＋相手シールドを1枚ブレイク', emoji:'💥', spellType:'fire_storm' },
+const TRIGGERS = [
+  { id:'summon',   name:'登場時',   detail:'このモンスターが場に出た時、' },
+  { id:'attack',   name:'攻撃時',   detail:'このモンスターが攻撃を宣言した時、' },
+  { id:'destroy',  name:'破壊時',   detail:'このモンスターが破壊された時、' },
+  { id:'damaged',  name:'被ダメ時', detail:'このモンスターがダメージを受けた時、' },
+  { id:'targeted', name:'被指定時', detail:'このモンスターが相手の効果の対象になった時、' },
+  { id:'kill',     name:'敵撃破時', detail:'このモンスターが相手モンスターを破壊した時、' },
+  { id:'ally',     name:'味方反応', detail:'他の味方モンスターが場に出た時、' },
+  { id:'enemy',    name:'相手反応', detail:'相手がスペルを使用、またはモンスターを召喚した時、' },
+  { id:'system',   name:'システム', detail:'自分がカードをドローした時、またはENを回復した時、' },
+  { id:'phase',    name:'節目',     detail:'各プレイヤーのターン開始時、または終了時、' },
 ];
 
-// --- 水文明デッキ ---
-const WATER_MONSTERS = [
-  { name:'水流の踊り手', civ:'水', type:'monster', en:1, atk:1, life:3,  keywords:['連鎖'],
-    effect:'【連鎖】召喚後デッキトップをめくり、水文明モンスターなら追加召喚\n登場時:1枚ドロー', spellType:'', emoji:'💃',
-    onSummon: (who)=>{ drawCards(who, 1, '水流の踊り手'); } },
-  { name:'霧の精霊',    civ:'水', type:'monster', en:1, atk:1, life:4,  keywords:[],
-    effect:'破壊時:2枚ドロー', spellType:'', emoji:'🌫️',
-    onDeath: (who)=>{ drawCards(who, 2, '霧の精霊'); } },
-  { name:'水の守護者',  civ:'水', type:'monster', en:2, atk:2, life:8,  keywords:['前衛','加速'],
-    effect:'【前衛】【加速】自分の召喚コスト-1\n登場時:1枚ドロー', spellType:'', emoji:'🐢',
-    onSummon: (who)=>{ drawCards(who, 1, '水の守護者'); } },
-  { name:'波濤の戦士',  civ:'水', type:'monster', en:3, atk:5, life:8,  keywords:['統率'],
-    effect:'【統率】デッキトップをめくり同種族（マリナー）なら追加召喚\n登場時:相手モンスター1体をバウンス＋1枚ドロー', spellType:'', emoji:'🌊',
-    tribe:'マリナー',
-    onSummon: (who)=>{ bounceOneTarget(who==='player'?'cpu':'player', who, '波濤の戦士'); drawCards(who, 1, '波濤の戦士'); } },
-  { name:'蒼波の剣士',  civ:'水', type:'monster', en:4, atk:6, life:11, keywords:['天啓','封印'],
-    effect:'【天啓】デッキトップをめくり、スペルなら即発動\n【封印】場にいる間、相手全体のATK-2\n登場時:相手モンスター2体をバウンス', spellType:'', emoji:'⚔️',
-    onSummon: (who)=>{ bounceNTargets(who==='player'?'cpu':'player', 2, '蒼波の剣士'); } },
-  { name:'深海の巨人',  civ:'水', type:'monster', en:5, atk:8, life:14, keywords:['封印'],
-    effect:'【封印】場にいる間、相手全体のATK-2\n登場時:3枚ドロー＋相手モンスター3体をバウンス', spellType:'', emoji:'🐋',
-    onSummon: (who)=>{ drawCards(who, 3, '深海の巨人'); bounceNTargets(who==='player'?'cpu':'player', 3, '深海の巨人'); } },
+// ★ needsTag=true → 誘発効果にタグ自由入力欄を表示
+const ACTIONS = [
+  { id:'shieldBreak', name:'シールドブレイクx',        score:3.0, params:['x'], needsTag:false, textFn:(x,y,t)=>`相手のシールドを${x}枚破壊する`},
+  { id:'shieldAdd',   name:'シールド追加x',             score:2.0, params:['x'], needsTag:false, textFn:(x,y,t)=>`自分のシールドを${x}枚追加する`},
+  { id:'damage',      name:'ダメージx',                 score:0.3, params:['x'], needsTag:false, textFn:(x,y,t)=>`対象に${x}ダメージを与える`},
+  { id:'randDamage',  name:'ランダム割り振りダメージx', score:0.5, params:['x'], needsTag:false, textFn:(x,y,t)=>`相手モンスター全体に合計${x}ダメージをランダムに割り振って与える`},
+  { id:'destroyAct',  name:'破壊',                      score:5.0, params:[],    needsTag:false, textFn:(x,y,t)=>`対象のモンスターを破壊する`},
+  { id:'buff',        name:'バフx',                     score:0.5, params:['x'], needsTag:false, textFn:(x,y,t)=>`対象のATK/HPを${x}上昇させる`},
+  { id:'reattack',    name:'再攻撃',                    score:3.0, params:[],    needsTag:false, textFn:(x,y,t)=>`このモンスターはもう一度攻撃できる`},
+  { id:'draw',        name:'ドローx',                   score:0.5, params:['x'], needsTag:false, textFn:(x,y,t)=>`カードを${x}枚引く`},
+  { id:'enBoost',     name:'EN加速x',                   score:1.0, params:['x'], needsTag:false, textFn:(x,y,t)=>`ENを${x}追加する`},
+  { id:'enReduce',    name:'EN減少x',                   score:2.0, params:['x'], needsTag:false, textFn:(x,y,t)=>`相手のENを${x}減少させる`},
+  { id:'deploy',      name:'展開',                      score:0.8, params:['x','y'], needsTag:false, textFn:(x,y,t)=>`手札からコスト${x}以下のモンスターを${y}体展開する`},
+  { id:'recover',     name:'回収x',                     score:1.0, params:['x'], needsTag:false, textFn:(x,y,t)=>`墓地からカードを${x}枚手札に加える`},
+  { id:'bounce',      name:'バウンス',                  score:2.0, params:[],    needsTag:false, textFn:(x,y,t)=>`対象のモンスターを手札に戻す`},
+  { id:'disable',     name:'行動不能x',                 score:0.5, params:['x'], needsTag:false, textFn:(x,y,t)=>`対象を${x}ターン行動不能にする`},
+  // ★ タグ自由入力
+  { id:'search',      name:'サーチ [タグ]',             score:2.0, params:[],    needsTag:true,  textFn:(x,y,t)=>`デッキから「${t||TAG_NONE}」を持つカードを1枚手札に加える`},
+  { id:'tagGrant',    name:'タグ付与 [タグ]',           score:1.0, params:[],    needsTag:true,  textFn:(x,y,t)=>`対象の味方1体に「${t||TAG_NONE}」を付与する`},
 ];
 
-const WATER_SPELLS = [
-  { name:'凍結の罠', civ:'水', type:'spell', en:1, keywords:['鼓動'],
-    effect:'【鼓動】\n相手モンスター2体をバウンス', emoji:'❄️', spellType:'bounce_two' },
-  { name:'大波',     civ:'水', type:'spell', en:2, keywords:['鼓動'],
-    effect:'【鼓動】\n相手モンスター1体をバウンス＋2枚ドロー', emoji:'🌊', spellType:'bounce_draw2' },
-  { name:'潮流',     civ:'水', type:'spell', en:2, keywords:[],
-    effect:'3枚ドロー', emoji:'🌀', spellType:'draw', value:3 },
-  { name:'深淵の審判', civ:'水', type:'spell', en:4, keywords:[],
-    effect:'相手モンスター最大3体をバウンス', emoji:'🌫️', spellType:'bounce_three' },
+const COND_TYPES = [
+  { id:'tagCount',  name:'タグ数条件', needsTag:true,  template:(tag,n)=>`「${tag||TAG_NONE}」を持つモンスターが場に${n}体以上いる場合`},
+  { id:'hpBelow',   name:'HP条件',    needsTag:false, template:(tag,n)=>`自身のHPが${n}以下の場合`},
+  { id:'costBelow', name:'コスト条件',needsTag:false, template:(tag,n)=>`自分のEN残量が${n}以下の場合`},
 ];
 
-// --- パートナー ---
-const PLAYER_PARTNER = {
-  name:'紅蓮王ヴァルド', civ:'火', type:'monster', en:5, atk:11, life:16,
-  keywords:['突撃','激昂'], tribe:'ウォリアー',
-  effect:'【突撃】【激昂】ダメージを受けるたびATKが永続上昇\n召喚条件:相手シールドを3枚以上ブレイク後\n登場時:相手モンスター全体に6ダメージ＋相手シールドを2枚追加ブレイク\n常在:自分の全モンスターATK+3',
-  emoji:'👑', isPartner:true,
-  summonCondition:'相手シールドを2枚以上ブレイクした時点で解放',
-  onSummon: async (who)=>{
-    await spreadDamage('cpu', 6, '紅蓮王ヴァルド');
-    if(!G.gameOver) await breakShield('cpu','ヴァルド');
-    if(!G.gameOver) await breakShield('cpu','ヴァルド');
+/* ─────────────────────────────
+   STATE
+───────────────────────────── */
+let tags = [];
+let triggeredEffects = [];
+let conditions = [];
+let triggerId = 0;
+let condId = 0;
+
+// deck: [{cardJson, count}]
+let deckCards = [];
+
+const civIcons = {None:'⚔️',Fire:'🔥',Water:'💧',Nature:'🌿',Darkness:'🌑',Light:'✨'};
+
+/* ─────────────────────────────
+   TAB
+───────────────────────────── */
+function switchTab(t) {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById(`page-${t}`).classList.add('active');
+  event.target.closest('.tab-btn').classList.add('active');
+  if (t==='deck') renderDeck();
+}
+
+/* ─────────────────────────────
+   CIV
+───────────────────────────── */
+function updateCiv() {
+  document.body.className = `civ-${document.getElementById('civType').value}`;
+  update();
+}
+
+/* ─────────────────────────────
+   TAGS
+───────────────────────────── */
+function focusTagInput(e) {
+  if (!e.target.classList.contains('tags-area')) return;
+  document.getElementById('tagInput').focus();
+}
+function handleTagInput(e) {
+  if (e.key==='Enter'||e.key===',') {
+    e.preventDefault();
+    const val = e.target.value.trim().replace(/,/g,'');
+    if (val && !tags.includes(val)) { tags.push(val); renderTags(); update(); }
+    e.target.value = '';
   }
-};
-const CPU_PARTNER = {
-  name:'深淵王リゼル', civ:'水', type:'monster', en:5, atk:8, life:20,
-  keywords:['封印'], tribe:'マリナー',
-  effect:'【封印】場にいる間、相手全体のATK-2\n召喚条件:自分の手札が6枚以上\n登場時:相手モンスター3体をバウンス＋5枚ドロー\n常在:自分がダメージを受けるたびに2枚ドロー',
-  emoji:'👑', isPartner:true,
-  summonCondition:'自分の手札が6枚以上',
-  onSummon: (who)=>{ bounceNTargets('player', 3, '深淵王リゼル'); drawCards('cpu', 5, '深淵王リゼル'); }
-};
-
-// =====================================================
-// GAME STATE
-// =====================================================
-let G = {};
-let revealCallback = null;
-let actionQueue = [];
-let processingQueue = false;
-
-function makeDeck(monsters, spells) {
-  let deck = [];
-  monsters.forEach(m => {
-    for(let i=0;i<3;i++) deck.push({...m, id:newId(), curLife:m.life, maxLife:m.life, tempAtk:0,
-      justSummoned:false, hasAttacked:false, canAttackThisTurn:false, revivedNext:false});
+}
+function removeTag(t) {
+  tags = tags.filter(x=>x!==t);
+  renderTags();
+  update();
+}
+function renderTags() {
+  const area=document.getElementById('tagsArea');
+  const input=document.getElementById('tagInput');
+  area.innerHTML='';
+  tags.forEach(t=>{
+    const chip=document.createElement('span');
+    chip.className='tag-chip';
+    chip.innerHTML=`${t}<span class="tag-del" onclick="removeTag('${t.replace(/'/g,"\\'")}')">✕</span>`;
+    area.appendChild(chip);
   });
-  spells.forEach(s => {
-    for(let i=0;i<3;i++) deck.push({...s, id:newId()});
+  area.appendChild(input);
+}
+
+/* ─────────────────────────────
+   TAG TEXT INPUT HELPER
+   サーチ・共鳴などのタグは自由入力テキストボックス
+───────────────────────────── */
+function makeTagTextInput(inputId, placeholder) {
+  // シンプルなテキスト入力。タグチップがあればdatalist候補に出す
+  const datalistId = inputId + '-dl';
+  let opts = tags.map(t=>`<option value="${t}">`).join('');
+  return `
+    <div class="form-group">
+      <label>対象タグ（テキスト入力）</label>
+      <input type="text" id="${inputId}" placeholder="${placeholder||'例: ドラゴン'}"
+        list="${datalistId}" oninput="update()" autocomplete="off">
+      <datalist id="${datalistId}">${opts}</datalist>
+    </div>`;
+}
+
+// tags 変更時に datalist を更新
+function refreshAllDataLists() {
+  document.querySelectorAll('datalist[id$="-dl"]').forEach(dl => {
+    dl.innerHTML = tags.map(t=>`<option value="${t}">`).join('');
   });
-  for(let i=deck.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [deck[i],deck[j]]=[deck[j],deck[i]]; }
-  return deck;
 }
 
-function initGame() {
-  cardIdCounter = 0;
-  G = {
-    turn:1, phase:'mana', activePlayer:'player', gameOver:false,
-    selectedAttacker:null, attackMode:false, chargedManaThisTurn:false,
-    triggerLock:false,
-    player:{
-      deck:makeDeck(FIRE_MONSTERS, FIRE_SPELLS),
-      hand:[], field:[], shields:[], mana:[], grave:[], manaUsed:0,
-      totalShieldsBroken:0,
-      pendingRevive:[], // 不死で復活待ち
-      partner:{...PLAYER_PARTNER, id:newId(), curLife:PLAYER_PARTNER.life, maxLife:PLAYER_PARTNER.life,
-        tempAtk:0, justSummoned:false, hasAttacked:false, canAttackThisTurn:false, onField:false, available:true}
-    },
-    cpu:{
-      deck:makeDeck(WATER_MONSTERS, WATER_SPELLS),
-      hand:[], field:[], shields:[], mana:[], grave:[], manaUsed:0,
-      totalShieldsBroken:0,
-      pendingRevive:[],
-      partner:{...CPU_PARTNER, id:newId(), curLife:CPU_PARTNER.life, maxLife:CPU_PARTNER.life,
-        tempAtk:0, justSummoned:false, hasAttacked:false, canAttackThisTurn:false, onField:false, available:true}
-    }
-  };
-  for(let i=0;i<5;i++){ G.player.shields.push(G.player.deck.pop()); G.cpu.shields.push(G.cpu.deck.pop()); }
-  for(let i=0;i<5;i++){ G.player.hand.push(G.player.deck.pop()); G.cpu.hand.push(G.cpu.deck.pop()); }
-  log('ゲーム開始！ 火文明（プレイヤー）vs 水文明（CPU）', 'system');
-  log('新キーワード: 連鎖・統率・天啓・不死・加速', 'special');
-  startPlayerTurn();
-}
-
-// =====================================================
-// LOG & BANNER
-// =====================================================
-function log(msg, type='system') {
-  const p = document.getElementById('gameLog');
-  const e = document.createElement('div');
-  e.className = `log-entry log-${type}`;
-  e.textContent = `▶ ${msg}`;
-  p.appendChild(e);
-  p.scrollTop = p.scrollHeight;
-}
-
-function showBanner(text, color='#ffd700', duration=1200) {
-  const b = document.createElement('div');
-  b.className = 'action-banner';
-  b.textContent = text;
-  b.style.color = color;
-  document.body.appendChild(b);
-  setTimeout(()=>b.remove(), duration);
-}
-
-// =====================================================
-// RENDER
-// =====================================================
-function render() {
-  renderShields('player'); renderShields('cpu');
-  renderField('player'); renderField('cpu');
-  renderHand(); renderCpuHand();
-  renderPartner('player'); renderPartner('cpu');
-  renderStats(); renderControls();
-}
-
-function renderShields(who) {
-  const zone = document.getElementById(who+'Shields');
-  zone.innerHTML = '';
-  const shields = G[who].shields;
-
-  // シールド0枚 = 直接攻撃可能状態の表示
-  if(shields.length === 0) {
-    for(let i=0;i<5;i++) {
-      const div = document.createElement('div');
-      div.className = 'shield broken';
-      zone.appendChild(div);
-    }
-    // 攻撃モード中ならクリック可能なトドメゾーンを追加
-    if(who==='cpu' && G.attackMode && G.selectedAttacker) {
-      const finish = document.createElement('div');
-      finish.style.cssText = 'padding:6px 14px;border:2px solid #ff3355;border-radius:6px;color:#ff3355;font-size:12px;font-weight:700;cursor:pointer;animation:pulse-target 0.6s infinite alternate;';
-      finish.textContent = '⚔ 直接攻撃（トドメ）';
-      finish.onclick = ()=>executeAttack(null,'direct');
-      zone.appendChild(finish);
-    }
-    return;
-  }
-
-  for(let i=0;i<5;i++) {
-    const div = document.createElement('div');
-    div.className = 'shield';
-    if(i >= shields.length) {
-      div.classList.add('broken');
-    } else {
-      // シールドの中身は非公開。鼓動かどうかは破壊されるまで表示しない
-      if(who==='cpu' && G.attackMode && G.selectedAttacker) {
-        const hasVanguard = G.cpu.field.some(c=>c.keywords.includes('前衛'))
-                         || (G.cpu.partner.onField && G.cpu.partner.keywords.includes('前衛'));
-        if(!hasVanguard) {
-          div.classList.add('targetable');
-          div.onclick = ()=>executeAttack(null,'direct');
-        }
-      }
-    }
-    zone.appendChild(div);
-  }
-}
-
-function renderField(who) {
-  const zone = document.getElementById(who+'Field');
-  zone.innerHTML = '';
-  G[who].field.forEach(card=>zone.appendChild(createMonsterEl(card, who)));
-  if(G[who].partner.onField) zone.appendChild(createMonsterEl(G[who].partner, who));
-}
-
-function getEffectiveAtk(card, who) {
-  let atk = card.atk + (card.tempAtk||0);
-  // パートナー常在：ヴァルドATK+3
-  if(G[who].partner.onField && G[who].partner.name==='紅蓮王ヴァルド' && !card.isPartner) atk+=3;
-  // 封印：相手に封印持ちがいるとATK-2（0未満にはしない）
-  const opp = who==='player'?'cpu':'player';
-  const sealCount = [...G[opp].field, ...(G[opp].partner.onField ? [G[opp].partner] : [])]
-    .filter(c=>c.keywords&&c.keywords.includes('封印')).length;
-  atk = Math.max(0, atk - sealCount*2);
-  return atk;
-}
-
-function getAccelBonus(who) {
-  return G[who].field.some(c=>c.keywords.includes('加速')) || (G[who].partner.onField && G[who].partner.keywords.includes('加速')) ? 1 : 0;
-}
-
-function createMonsterEl(card, who) {
-  const el = document.createElement('div');
-  el.className = `monster-card ${card.civ==='火'?'fire-card':'water-card'}`;
-  el.dataset.id = card.id;
-  const lr = card.curLife/card.maxLife;
-  const hpClass = lr>0.5?'':(lr>0.25?'mid':'low');
-  const eatk = getEffectiveAtk(card, who);
-  const kwHtml = card.keywords.map(k=>`<span class="keyword-tag keyword-${k}">${k}</span>`).join('');
-  // 攻撃済みバッジ
-  const attackedBadge = (who==='player' && G.phase==='battle' && card.hasAttacked)
-    ? '<div style="position:absolute;top:2px;right:2px;font-size:8px;background:#444;color:#aaa;border-radius:3px;padding:1px 3px;">攻撃済</div>' : '';
-  const canAtk = who==='player' && G.phase==='battle' && !card.hasAttacked && card.canAttackThisTurn;
-  el.innerHTML = `
-    <div class="card-en">${card.en}</div>
-    <div class="card-emoji">${card.emoji}</div>
-    <div class="card-name">${card.name}</div>
-    <div class="card-stats"><span class="card-atk">⚔${eatk}</span><span class="card-life">♥${card.curLife}</span></div>
-    <div class="card-keywords">${kwHtml}</div>
-    <div class="hp-bar-wrap"><div class="hp-bar ${hpClass}" style="width:${lr*100}%"></div></div>
-    ${attackedBadge}
-    <div style="display:none;position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);
-      background:#0a0a18;border:1px solid #446;border-radius:6px;padding:6px 8px;font-size:9px;
-      color:#ccccdd;white-space:pre-line;width:160px;z-index:100;line-height:1.5;pointer-events:none;
-      box-shadow:0 4px 16px rgba(0,0,0,0.9);" class="card-tooltip-box">${card.name}
-ATK:${eatk} / LIFE:${card.curLife}/${card.maxLife} / EN:${card.en}
-${card.keywords.length?'【'+card.keywords.join('・')+'】\n':''}${card.effect||'効果なし'}</div>`;
-  // 攻撃済みはグレーアウト
-  if(who==='player' && G.phase==='battle' && card.hasAttacked) {
-    el.style.opacity='0.45';
-    el.style.filter='grayscale(60%)';
-  }
-  el.addEventListener('mouseenter', ()=>{ const t=el.querySelector('.card-tooltip-box'); if(t) t.style.display='block'; });
-  el.addEventListener('mouseleave', ()=>{ const t=el.querySelector('.card-tooltip-box'); if(t) t.style.display='none'; });
-  if(canAtk) {
-    el.classList.add('can-attack');
-    el.onclick = ()=>selectAttacker(card);
-  } else if(who==='cpu' && G.attackMode) {
-    const cpuHasVanguard = G.cpu.field.some(c=>c.keywords.includes('前衛'))
-                        || (G.cpu.partner.onField && G.cpu.partner.keywords.includes('前衛'));
-    const isTargetable = !cpuHasVanguard || card.keywords.includes('前衛');
-    if(isTargetable) {
-      el.classList.add('targetable');
-      el.onclick = ()=>executeAttack(card,'monster');
-    } else {
-      el.onclick = ()=>showFieldCardDetail(card, who);
-    }
-  } else {
-    el.onclick = ()=>showFieldCardDetail(card, who);
-  }
-  return el;
-}
-
-function showFieldCardDetail(card, who) {
-  const eatk = getEffectiveAtk(card, who);
-  const popup = document.getElementById('cardDetailPopup');
-  popup.className = `card-detail-popup ${card.civ==='火'?'fire-theme':'water-theme'}`;
-  document.getElementById('detailEmoji').textContent = card.emoji;
-  document.getElementById('detailName').textContent = card.name;
-  document.getElementById('detailType').textContent =
-    `モンスター | EN:${card.en}` + (card.keywords.length ? ` | 【${card.keywords.join('・')}】` : '');
-  document.getElementById('detailStats').innerHTML =
-    `<span class="card-atk">⚔ ATK ${eatk}</span><span class="card-life">♥ LIFE ${card.curLife}/${card.maxLife}</span>`;
-  document.getElementById('detailEffect').textContent = card.effect || '（効果なし）';
-  const actions = document.getElementById('detailActions');
-  actions.innerHTML = '';
-  const b = document.createElement('button');
-  b.className = 'btn btn-secondary'; b.textContent = '✕ 閉じる';
-  b.onclick = ()=>closeCardDetail();
-  actions.appendChild(b);
-  document.getElementById('cardDetailOverlay').style.display = 'flex';
-}
-
-function renderHand() {
-  const zone = document.getElementById('playerHand');
-  zone.innerHTML = '';
-  const manaAvail = G.player.mana.length - G.player.manaUsed + getAccelBonus('player');
-  G.player.hand.forEach((card,i)=>{
+/* ─────────────────────────────
+   ABILITY GRID
+───────────────────────────── */
+function buildAbilityGrid() {
+  const grid = document.getElementById('abilityGrid');
+  grid.innerHTML = '';
+  STATIC_ABILITIES.forEach(ab => {
     const el = document.createElement('div');
-    el.className = `hand-card ${card.civ==='火'?'fire-card':'water-card'} ${card.type==='spell'?'spell-card':''}`;
-    const canMana = G.phase==='mana' && !G.chargedManaThisTurn;
-    const canPlay = G.phase==='main' && card.type==='monster' && card.en<=manaAvail;
-    const canSpell = G.phase==='main' && card.type==='spell' && card.en<=manaAvail;
-    if(canMana) el.classList.add('mana-target');
-    if(canPlay||canSpell) el.classList.add('playable');
-    const badge = card.type==='spell'?`<span class="card-type-badge spell-badge">スペル</span>`:`<span class="card-type-badge monster-badge">モンスター</span>`;
-    const kwHtml = card.keywords.map(k=>`<span class="keyword-tag keyword-${k}">${k}</span>`).join('');
-    let hint='';
-    if(canMana&&(canPlay||canSpell)) hint='<div style="font-size:7px;color:#aaffaa;text-align:center;">チャージ or プレイ</div>';
-    else if(canMana) hint='<div style="font-size:7px;color:#aaffaa;text-align:center;">チャージ可</div>';
-    else if(canPlay) hint='<div style="font-size:7px;color:#ffaa66;text-align:center;">召喚可</div>';
-    else if(canSpell) hint='<div style="font-size:7px;color:#ffaa66;text-align:center;">発動可</div>';
-    el.innerHTML = `<div class="card-en">${card.en}</div>${badge}
-      <div style="font-size:18px;text-align:center;">${card.emoji}</div>
-      <div class="card-name">${card.name}</div>
-      ${card.type==='monster'?`<div class="card-stats"><span class="card-atk">⚔${card.atk}</span><span class="card-life">♥${card.life}</span></div>`:''}
-      <div class="card-keywords">${kwHtml}</div>${hint}`;
-    el.onclick = ()=>{
-      if(G.phase==='mana' && !G.chargedManaThisTurn) {
-        chargeManaPicker(card);
-      } else {
-        showCardDetail(card, i);
-      }
-    };
-    zone.appendChild(el);
-  });
-}
+    el.className = 'ability-item has-tip';
+    el.id = `ab-${ab.id}`;
 
-function renderCpuHand() {
-  const zone = document.getElementById('cpuHandDisplay');
-  zone.innerHTML = '';
-  G.cpu.hand.forEach(()=>{
-    const el = document.createElement('div');
-    el.className='cpu-hand-back'; el.textContent='🂠';
-    zone.appendChild(el);
-  });
-}
-
-function renderPartner(who) {
-  const panel = document.getElementById(who+'PartnerDisplay');
-  const p = G[who].partner;
-  panel.innerHTML = '';
-  const el = document.createElement('div');
-  el.className = `partner-card ${p.civ==='火'?'fire-card':'water-card'}`;
-  const canSummon = who==='player' && !p.onField && p.available && G.phase==='main' && checkPartnerCondition('player');
-  const condMet = !p.onField && p.available && checkPartnerCondition(who);
-
-  // 条件達成状況テキスト
-  let condStatus, condColor;
-  if(p.onField) {
-    condStatus = '⚔ 出撃中'; condColor = '#ffd700';
-  } else if(!p.available) {
-    condStatus = '消滅'; condColor = '#555';
-  } else if(condMet) {
-    condStatus = '✅ 召喚可能！'; condColor = '#00ff88';
-  } else {
-    // 進捗表示
-    if(who==='player') {
-      const broken = G.player.cpuShieldsBroken||0;
-      condStatus = `🔒 ${broken}/2枚ブレイク`; condColor = '#ff8844';
-    } else {
-      const grave = G.cpu.grave.length;
-      condStatus = `🔒 墓地${grave}/6枚`; condColor = '#8888ff';
+    let extraHtml = '';
+    if (ab.hasX) {
+      extraHtml += `<div class="form-group"><label>x の値</label>
+        <input type="number" id="abx-${ab.id}" value="1" min="1" max="9"
+          oninput="update()" onclick="event.stopPropagation()"></div>`;
     }
-  }
-
-  el.innerHTML = `
-    <div style="font-size:22px;text-align:center;">${p.emoji}</div>
-    <div class="card-name" style="font-size:10px;font-weight:900;">${p.name}</div>
-    <div class="card-stats" style="font-size:9px;"><span class="card-atk">⚔${p.atk}</span><span class="card-life">♥${p.onField?p.curLife:p.maxLife}</span><span style="color:#88aaff;margin-left:4px;">EN:${p.en}</span></div>
-    <div style="font-size:9px;color:${condColor};margin-top:4px;font-weight:700;">${condStatus}</div>`;
-
-  if(canSummon) {
-    el.style.cssText = 'cursor:pointer;border-color:#00ff88!important;box-shadow:0 0 18px rgba(0,255,136,0.8)!important;animation:partner-ready 1s infinite alternate;';
-    el.onclick = ()=>summonPartner('player');
-    el.title = `クリックで${p.name}を召喚！（EN:${p.en}消費）`;
-  } else if(condMet && who==='player') {
-    el.style.cssText = 'border-color:#00cc66!important;box-shadow:0 0 12px rgba(0,200,100,0.5)!important;cursor:pointer;';
-    el.onclick = ()=>showPartnerDetail(who);
-  } else {
-    el.style.cssText = 'cursor:pointer;';
-    el.onclick = ()=>showPartnerDetail(who);
-  }
-  panel.appendChild(el);
-}
-
-function renderStats() {
-  document.getElementById('playerShieldCount').textContent = G.player.shields.length;
-  document.getElementById('cpuShieldCount').textContent = G.cpu.shields.length;
-  document.getElementById('playerHandCount').textContent = G.player.hand.length;
-  document.getElementById('cpuHandCount').textContent = G.cpu.hand.length;
-  const pm=G.player.mana.length, pu=G.player.manaUsed;
-  document.getElementById('playerManaDisplay').textContent = `${pm-pu}/${pm}`;
-  document.getElementById('playerManaCount').textContent = `${pm-pu} EN`;
-  document.getElementById('cpuManaDisplay').textContent = `${G.cpu.mana.length-G.cpu.manaUsed}/${G.cpu.mana.length}`;
-  document.getElementById('playerGraveCount').textContent = G.player.grave.length;
-  document.getElementById('cpuGraveCount').textContent = G.cpu.grave.length;
-  document.getElementById('playerDeckCount').textContent = G.player.deck.length;
-  document.getElementById('cpuDeckCount').textContent = G.cpu.deck.length;
-  const icons = document.getElementById('playerManaIcons');
-  icons.innerHTML = '';
-  for(let i=0;i<pm;i++){const pip=document.createElement('div');pip.className='mana-pip'+(i<pu?' used':'');icons.appendChild(pip);}
-}
-
-function renderControls() {
-  const isP = G.activePlayer==='player';
-  const phaseNames = {mana:'🌿 マナチャージ', main:'⚔ メインフェイズ', battle:'💥 バトルフェイズ', end:'🔚 エンドフェイズ'};
-  document.getElementById('phaseIndicator').textContent = `TURN ${G.turn}  ${phaseNames[G.phase]||G.phase}`;
-  const btnMain = document.getElementById('btnMain');
-  const btnAtk = document.getElementById('btnDeclareAttack');
-  const btnEnd = document.getElementById('btnEndTurn');
-  if(!isP || G.gameOver) {
-    btnMain.disabled=true; btnAtk.disabled=true; btnEnd.disabled=true;
-    document.getElementById('actionHint').textContent='💧 CPUのターン中…';
-    return;
-  }
-  if(G.phase==='mana') {
-    btnMain.textContent='⏭ スキップ → メインフェイズへ';
-    btnMain.onclick=endPhase; btnMain.disabled=false;
-    btnAtk.disabled=true; btnEnd.disabled=false;
-    document.getElementById('actionHint').textContent = G.chargedManaThisTurn
-      ? '✅ チャージ済み。スキップしてメインへ'
-      : '👆 マナに置くカードを選んでください（手札をクリック）';
-  } else if(G.phase==='main') {
-    btnMain.textContent='⚔ バトルフェイズへ';
-    btnMain.onclick=endPhase; btnMain.disabled=false;
-    btnAtk.disabled=true; btnEnd.disabled=false;
-    document.getElementById('actionHint').textContent='カードをクリックして召喚/発動 | マナ使い切りで自動バトルへ';
-  } else if(G.phase==='battle') {
-    btnMain.textContent='🔚 バトル終了';
-    btnMain.onclick=endPhase; btnMain.disabled=false;
-    btnAtk.disabled=G.attackMode; btnEnd.disabled=false;
-    document.getElementById('actionHint').textContent = G.attackMode
-      ? '🎯 攻撃対象を選択（モンスター / シールド）'
-      : '⚡ 金枠モンスターをクリック → 攻撃宣言';
-  } else if(G.phase==='end') {
-    btnMain.textContent='→';
-    btnMain.disabled=true;
-    btnAtk.disabled=true; btnEnd.disabled=false;
-    document.getElementById('actionHint').textContent='⏩ ターン終了を押してCPUへ';
-  }
-}
-
-// =====================================================
-// TURN MANAGEMENT
-// =====================================================
-function startPlayerTurn() {
-  G.activePlayer='player'; G.phase='mana';
-  G.chargedManaThisTurn=false; 
-  // 不死復活処理
-  processRevive('player');
-  // 攻撃フラグリセット
-  G.player.field.forEach(c=>{c.hasAttacked=false;c.canAttackThisTurn=false;c.tempAtk=0;c.justSummoned=false;});
-  if(G.player.partner.onField){G.player.partner.hasAttacked=false;G.player.partner.canAttackThisTurn=false;G.player.partner.tempAtk=0;}
-  log(`--- TURN ${G.turn} プレイヤーのターン ---`,'system');
-  if(G.player.deck.length>0){const c=G.player.deck.pop();G.player.hand.push(c);log(`ドロー: ${c.name}`,'player');}
-  log('マナチャージフェイズ（任意）','system');
-  render();
-}
-
-function processRevive(who) {
-  const pending = G[who].pendingRevive;
-  if(!pending.length) return;
-  pending.forEach(card=>{
-    card.curLife = card.maxLife; card.hasAttacked=false; card.canAttackThisTurn=false; card.justSummoned=false;
-    G[who].field.push(card);
-    showBanner(`🔄 ${card.name} 復活！`, '#aa44ff', 1400);
-    log(`【不死】${card.name}が復活した！`,'chain');
-  });
-  G[who].pendingRevive = [];
-}
-
-function endPhase() {
-  if(G.activePlayer!=='player'||G.gameOver) return;
-  if(G.phase==='mana'){
-    G.phase='main'; G.player.manaUsed=0;
-    log('メインフェイズ','system');
-  } else if(G.phase==='main'){
-    G.phase='battle';
-    G.player.field.forEach(c=>{if(!c.justSummoned)c.canAttackThisTurn=true; c.justSummoned=false;});
-    if(G.player.partner.onField){if(!G.player.partner.justSummoned)G.player.partner.canAttackThisTurn=true; G.player.partner.justSummoned=false;}
-    log('バトルフェイズ','system');
-  } else if(G.phase==='battle'){
-    G.phase='end';
-    log('エンドフェイズ','system');
-  }
-  G.attackMode=false; G.selectedAttacker=null;
-  render();
-}
-
-function endTurn() {
-  if(G.activePlayer!=='player'||G.gameOver) return;
-  G.attackMode=false; G.selectedAttacker=null;
-  log('プレイヤーターン終了','player');
-  G.turn++;
-  startCpuTurn();
-}
-
-// =====================================================
-// CARD DETAIL POPUP
-// =====================================================
-function showCardDetail(card, idx) {
-  const manaAvail = G.player.mana.length - G.player.manaUsed + getAccelBonus('player');
-  const canMana = G.phase==='mana' && !G.chargedManaThisTurn;
-  const canPlay = G.phase==='main' && card.type==='monster' && card.en<=manaAvail;
-  const canSpell = G.phase==='main' && card.type==='spell' && card.en<=manaAvail;
-  const popup = document.getElementById('cardDetailPopup');
-  popup.className = `card-detail-popup ${card.civ==='火'?'fire-theme':'water-theme'}`;
-  document.getElementById('detailEmoji').textContent = card.emoji;
-  document.getElementById('detailName').textContent = card.name;
-  document.getElementById('detailType').textContent = `${card.type==='spell'?'スペル':'モンスター'} | EN:${card.en}` + (card.keywords.length?` | 【${card.keywords.join('・')}】`:'');
-  const stats = document.getElementById('detailStats');
-  stats.innerHTML = card.type==='monster'?`<span class="card-atk">⚔ ATK ${card.atk}</span><span class="card-life">♥ LIFE ${card.life}</span>`:`<span style="color:#cc88ff;">スペルカード</span>`;
-  document.getElementById('detailEffect').textContent = card.effect||'（効果なし）';
-  const actions = document.getElementById('detailActions');
-  actions.innerHTML = '';
-  const mkBtn = (cls,text,disabled,cb)=>{
-    const b=document.createElement('button');b.className=`btn ${cls}`;b.textContent=text;b.disabled=disabled;b.onclick=cb;actions.appendChild(b);
-  };
-  mkBtn('btn-mana','🌿 マナにチャージ',!canMana,()=>{closeCardDetail();chargeManaPicker(card);});
-  if(card.type==='monster') mkBtn('btn-play',`⚔ 召喚 (EN${card.en})`,!canPlay,()=>{closeCardDetail();summonMonster('player',card,idx);});
-  else mkBtn('btn-play',`✨ スペル発動 (EN${card.en})`,!canSpell,()=>{closeCardDetail();castSpell('player',card,idx);});
-  mkBtn('btn-secondary','✕ 閉じる',false,()=>closeCardDetail());
-  document.getElementById('cardDetailOverlay').style.display='flex';
-}
-
-function closeCardDetail(e) {
-  // 背景オーバーレイのクリックイベントの場合、子要素クリックは無視
-  if(e && e.currentTarget && e.target !== e.currentTarget) return;
-  document.getElementById('cardDetailOverlay').style.display='none';
-}
-
-function chargeManaPicker(card) {
-  const idx = G.player.hand.findIndex(c=>c.id===card.id);
-  if(idx<0) return;
-  G.player.hand.splice(idx,1);
-  G.player.mana.push(card);
-  G.chargedManaThisTurn=true;
-  log(`マナチャージ: ${card.name}（合計${G.player.mana.length}EN）`,'player');
-  // マナチャージ後は自動でメインフェイズへ
-  G.phase='main'; G.player.manaUsed=0;
-  log('メインフェイズ','system');
-  render();
-}
-
-// マナ使い切りチェック：メインフェイズ中に毎回呼ぶ
-function checkAutoAdvance() {
-  if(G.phase!=='main' || G.activePlayer!=='player' || G.gameOver) return;
-  const manaLeft = G.player.mana.length - G.player.manaUsed + getAccelBonus('player');
-  const hasPlayable = G.player.hand.some(c=>c.en<=manaLeft&&c.type==='monster') ||
-                      G.player.hand.some(c=>c.en<=manaLeft&&c.type==='spell');
-  if(manaLeft<=0 && !hasPlayable) {
-    log('マナ使い切り！ バトルフェイズへ','system');
-    G.phase='battle';
-    G.player.field.forEach(c=>{if(!c.justSummoned)c.canAttackThisTurn=true; c.justSummoned=false;});
-    if(G.player.partner.onField){if(!G.player.partner.justSummoned)G.player.partner.canAttackThisTurn=true; G.player.partner.justSummoned=false;}
-    render();
-  }
-}
-
-// =====================================================
-// SUMMON & SPELL
-// =====================================================
-async function summonMonster(who, card, handIndex, free=false) {
-  const state = G[who];
-  if(handIndex !== null) {
-    const actualIdx = typeof handIndex==='number' && handIndex >= 0
-      ? handIndex
-      : state.hand.findIndex(c=>c.id===card.id);
-    if(actualIdx >= 0) state.hand.splice(actualIdx, 1);
-  }
-  const accel = getAccelBonus(who);
-  if(!free) state.manaUsed += Math.max(0, card.en - accel);
-  const fc = {...card, id:newId(), curLife:card.life, maxLife:card.life, tempAtk:0,
-    justSummoned:true, hasAttacked:false, canAttackThisTurn:card.keywords.includes('突撃'), revivedNext:false,
-    keywords:[...card.keywords]};
-  state.field.push(fc);
-  log(`${who==='player'?'プレイヤー':'CPU'}: 【${card.name}】召喚！`+(accel>0?' (加速-1EN)':''), who==='player'?'player':'cpu');
-  showBanner(`${fc.emoji} ${fc.name} 召喚！`, who==='player'?'#ff4500':'#00bfff', 900);
-  render();
-  animateSummon(fc);
-  if(G.gameOver) return;
-  if(fc.onSummon) await fc.onSummon(who);
-  if(G.gameOver) return;
-  // 連鎖・統率・天啓は1回のみ（発火後にfcのキーワードから除去して再発火防止）
-  if(fc.keywords.includes('連鎖')) { fc.keywords=fc.keywords.filter(k=>k!=='連鎖'&&k!=='統率'&&k!=='天啓'); await triggerChain(who, fc); }
-  else if(fc.keywords.includes('統率')) { fc.keywords=fc.keywords.filter(k=>k!=='連鎖'&&k!=='統率'&&k!=='天啓'); await triggerToiitsu(who, fc); }
-  else if(fc.keywords.includes('天啓')) { fc.keywords=fc.keywords.filter(k=>k!=='天啓'); await triggerTenkei(who, fc); }
-  render();
-  if(who==='player') checkAutoAdvance();
-}
-
-async function castSpell(who, card, handIndex) {
-  const state = G[who];
-  const actualIdx = typeof handIndex==='number' ? handIndex : state.hand.findIndex(c=>c.id===card.id);
-  if(actualIdx<0) return;
-  state.hand.splice(actualIdx,1);
-  state.manaUsed += card.en;
-  state.grave.push(card);
-  log(`${who==='player'?'プレイヤー':'CPU'}: スペル【${card.name}】発動！`, who==='player'?'player':'cpu');
-  render();
-  await executeSpellEffect(who, card);
-  G.triggerLock = false;
-  render();
-  if(who==='player') checkAutoAdvance();
-}
-
-async function executeSpellEffect(who, card) {
-  const opp = who==='player'?'cpu':'player';
-  switch(card.spellType){
-    case 'damage_one':
-      await damageOneTarget2(who, opp, card.value, card.name);
-      break;
-    case 'damage_all':
-      await spreadDamage(opp, card.value, card.name);
-      break;
-    case 'bounce_one':
-      bounceOneTarget(opp, who, card.name);
-      break;
-    case 'bounce_two':
-      bounceNTargets(opp, 2, card.name);
-      break;
-    case 'bounce_draw':
-      bounceOneTarget(opp, who, card.name);
-      drawCards(who, 1, card.name);
-      break;
-    case 'bounce_draw2':
-      bounceOneTarget(opp, who, card.name);
-      drawCards(who, 2, card.name);
-      break;
-    case 'bounce_all':
-      bounceAllTargets(opp, card.name);
-      break;
-    case 'bounce_three':
-      bounceNTargets(opp, 3, card.name);
-      break;
-    case 'fire_storm':
-      await spreadDamage(opp, 4, card.name);
-      if(!G.gameOver) await breakShield(opp, card.name);
-      break;
-    case 'heal_one':
-      if(who==='player'){
-        const ht = allPlayerMonsters();
-        await new Promise(resolve=>showCardSelect('回復対象',ht,t=>{
-          if(t){t.curLife=Math.min(t.maxLife,t.curLife+card.value);log(`${card.name}: ${t.name}のLIFE+${card.value}`,'effect');}
-          resolve();
-        }));
-      } else {
-        const t=G.cpu.field[0]||(G.cpu.partner.onField?G.cpu.partner:null);
-        if(t){t.curLife=Math.min(t.maxLife,t.curLife+card.value);log(`${card.name}: ${t.name}のLIFE+${card.value}`,'effect');}
-      }
-      break;
-    case 'destroy_one':
-      if(who==='player'){
-        const dTargets = allCpuMonsters().filter(c=>!c.isPartner);
-        if(!dTargets.length){ log(`${card.name}: 破壊対象なし`,'system'); break; }
-        await new Promise(resolve=>showCardSelect('破壊対象',dTargets,async t=>{
-          if(t) await destroyMonster('cpu',t,card.name);
-          resolve();
-        }));
-      } else {
-        const t=pickTarget(opp); if(t) await destroyMonster(opp,t,card.name);
-      }
-      break;
-    case 'draw':
-      drawCards(who, card.value, card.name);
-      break;
-    case 'buff_atk':
-      if(who==='player'){
-        await new Promise(resolve=>showCardSelect('強化対象',allPlayerMonsters(),t=>{
-          if(t){t.tempAtk=(t.tempAtk||0)+card.value;log(`${card.name}: ${t.name}のATK+${card.value}`,'effect');}
-          resolve();
-        }));
-      } else {
-        const t=G.cpu.field[0];
-        if(t){t.tempAtk=(t.tempAtk||0)+card.value;log(`${card.name}: ${t.name}のATK+${card.value}`,'effect');}
-      }
-      break;
-  }
-  render();
-}
-
-// =====================================================
-// CHAIN / TOIITSU / TENKEI
-// =====================================================
-async function triggerChain(who, card) {
-  if(G[who].deck.length===0) return;
-  const top = G[who].deck[G[who].deck.length-1];
-  log(`🔗 連鎖発動！【${card.name}】デッキトップをめくる…（${who==='player'?'プレイヤー':'CPU'}）`,'chain');
-  showBanner('🔗 連鎖！', '#dd88ff', 1000);
-  G[who].deck.pop();
-  if(top.type==='monster' && top.civ===card.civ) {
-    await new Promise(r=>showReveal(top, true, '連鎖ヒット！ 追加召喚！', r, card, who));
-    await new Promise(r=>setTimeout(r,200));
-    const savedKw = top.keywords;
-    top.keywords = top.keywords.filter(k=>k!=='連鎖'&&k!=='統率'&&k!=='天啓');
-    await summonMonster(who, top, null, true);
-    top.keywords = savedKw;
-  } else {
-    G[who].hand.push(top);
-    await new Promise(r=>showReveal(top, false, '外れ… 手札に加わった', r, card, who));
-  }
-  render();
-}
-
-async function triggerToiitsu(who, card) {
-  if(G[who].deck.length===0) return;
-  const top = G[who].deck[G[who].deck.length-1];
-  log(`📜 統率発動！【${card.name}】デッキトップをめくる…`,'chain');
-  showBanner('📜 統率！', '#00ccff', 1000);
-  const sameTribe = top.type==='monster' && top.tribe && card.tribe && top.tribe===card.tribe;
-  G[who].deck.pop();
-  if(sameTribe) {
-    await new Promise(r=>showReveal(top, true, `${top.tribe}族ヒット！ 追加召喚！`, r, card, who));
-    await new Promise(r=>setTimeout(r,200));
-    const savedKw = top.keywords;
-    top.keywords = top.keywords.filter(k=>k!=='連鎖'&&k!=='統率'&&k!=='天啓');
-    await summonMonster(who, top, null, true);
-    top.keywords = savedKw;
-  } else {
-    G[who].hand.push(top);
-    await new Promise(r=>showReveal(top, false, '外れ… 手札に加わった', r, card, who));
-  }
-  render();
-}
-
-async function triggerTenkei(who, card) {
-  if(G[who].deck.length===0) return;
-  const top = G[who].deck[G[who].deck.length-1];
-  log(`✨ 天啓発動！【${card.name}】デッキトップをめくる…`,'chain');
-  showBanner('✨ 天啓！', '#88ddff', 1000);
-  G[who].deck.pop();
-  if(top.type==='spell') {
-    await new Promise(r=>showReveal(top, true, 'スペルヒット！ 即発動！', r, card, who));
-    G[who].grave.push(top);
-    await executeSpellEffect(who, top);
-  } else {
-    G[who].hand.push(top);
-    await new Promise(r=>showReveal(top, false, '外れ… 手札に加わった', r, card, who));
-  }
-  render();
-}
-
-// =====================================================
-// REVEAL OVERLAY
-// =====================================================
-function showReveal(card, isHit, resultText, cb, sourceCard, sourceWho) {
-  const whoLabel = sourceWho==='player' ? '🔥 プレイヤー' : '💧 CPU';
-  const sourceLabel = sourceCard ? `${whoLabel}の【${sourceCard.emoji} ${sourceCard.name}】の効果` : '';
-  document.getElementById('revealSource').textContent = sourceLabel;
-  document.getElementById('revealTitle').textContent = 'デッキトップをめくる…';
-  document.getElementById('revealEmoji').textContent = card.emoji;
-  document.getElementById('revealCardName').textContent = `${card.name}（${card.type==='spell'?'スペル':'モンスター'} / EN:${card.en} / ${card.civ}文明${card.tribe?` / ${card.tribe}族`:''}）`;
-  const res = document.getElementById('revealResult');
-  res.textContent = resultText;
-  res.className = 'reveal-result ' + (isHit?'reveal-hit':'reveal-miss');
-  revealCallback = cb;
-  document.getElementById('revealOverlay').style.display='flex';
-}
-
-function closeReveal() {
-  document.getElementById('revealOverlay').style.display='none';
-  if(revealCallback){ const cb=revealCallback; revealCallback=null; cb(); }
-}
-
-// =====================================================
-// PARTNER
-// =====================================================
-function checkPartnerCondition(who) {
-  const p = G[who].partner;
-  if(p.onField||!p.available) return false;
-  return who==='player' ? (G.player.cpuShieldsBroken||0)>=2 : G.cpu.hand.length>=6;
-}
-
-function showPartnerDetail(who) {
-  const p = G[who].partner;
-  const eatk = getEffectiveAtk(p, who);
-  const popup = document.getElementById('cardDetailPopup');
-  popup.className = `card-detail-popup ${p.civ==='火'?'fire-theme':'water-theme'}`;
-  document.getElementById('detailEmoji').textContent = p.emoji;
-  document.getElementById('detailName').textContent = p.name + ' 【パートナー】';
-  document.getElementById('detailType').textContent =
-    `モンスター | EN:${p.en}` + (p.keywords.length ? ` | 【${p.keywords.join('・')}】` : '');
-  document.getElementById('detailStats').innerHTML =
-    `<span class="card-atk">⚔ ATK ${p.onField ? eatk : p.atk}</span><span class="card-life">♥ LIFE ${p.onField ? p.curLife : p.maxLife}/${p.maxLife}</span>`;
-  const condMet = checkPartnerCondition(who);
-  document.getElementById('detailEffect').textContent =
-    `召喚条件: ${p.summonCondition}\n\n${p.effect||'（効果なし）'}`;
-  const actions = document.getElementById('detailActions');
-  actions.innerHTML = '';
-  // プレイヤーのパートナーかつ召喚可能なら召喚ボタンも出す
-  if(who==='player' && !p.onField && p.available && G.phase==='main' && condMet) {
-    const manaAvail = G.player.mana.length - G.player.manaUsed + getAccelBonus('player');
-    const canAfford = manaAvail >= p.en;
-    const btn = document.createElement('button');
-    btn.className = 'btn btn-primary';
-    btn.textContent = `✨ 召喚 (EN${p.en})`;
-    btn.disabled = !canAfford;
-    btn.onclick = ()=>{ closeCardDetail(); summonPartner('player'); };
-    actions.appendChild(btn);
-  }
-  const closeBtn = document.createElement('button');
-  closeBtn.className = 'btn btn-secondary'; closeBtn.textContent = '✕ 閉じる';
-  closeBtn.onclick = ()=>closeCardDetail();
-  actions.appendChild(closeBtn);
-  document.getElementById('cardDetailOverlay').style.display = 'flex';
-}
-
-async function summonPartner(who) {
-  const p = G[who].partner;
-  if(!checkPartnerCondition(who)) return;
-  const manaAvail = G[who].mana.length - G[who].manaUsed + getAccelBonus(who);
-  if(manaAvail < p.en){ log(`パートナー召喚: EN不足（必要${p.en}）`,'system'); return; }
-  G[who].manaUsed += p.en;
-  p.onField=true; p.justSummoned=true; p.canAttackThisTurn=p.keywords.includes('突撃');
-  p.hasAttacked=false; p.curLife=p.maxLife; p.tempAtk=0;
-  // 自分のシールドが0なら召喚時に即前衛付与
-  if(G[who].shields.length===0 && !p.keywords.includes('前衛')) {
-    p.keywords = ['前衛', ...p.keywords];
-    log(`【${p.name}】シールドなし召喚→前衛として立ちはだかる！`, 'shield');
-  }
-  log(`${who==='player'?'プレイヤー':'CPU'}: ✨ パートナー【${p.name}】降臨！！`, who==='player'?'player':'cpu');
-  showBanner(`👑 ${p.name} 降臨！`, '#ffd700', 1600);
-  if(p.onSummon) await Promise.resolve(p.onSummon(who));
-  render();
-}
-
-// =====================================================
-// BATTLE
-// =====================================================
-function declareAttack() {
-  if(G.phase!=='battle'||G.gameOver) return;
-  log('攻撃するモンスターを選択してください','system');
-}
-
-function selectAttacker(card) {
-  if(G.phase!=='battle'||G.gameOver||G.attackMode) return;
-  if(card.hasAttacked||!card.canAttackThisTurn){ log(`${card.name}はこのターン攻撃できません`,'system'); return; }
-  G.selectedAttacker=card; G.attackMode=true;
-  const hasVanguard = G.cpu.field.some(c=>c.keywords.includes('前衛'))||(G.cpu.partner.onField&&G.cpu.partner.keywords.includes('前衛'));
-  log(`【${card.name}】(ATK:${getEffectiveAtk(card,'player')}) が攻撃宣言！`+(hasVanguard?' 前衛を攻撃してください':'対象を選択（モンスター or シールド）'),'player');
-  document.getElementById('btnDeclareAttack').textContent='直接攻撃';
-  document.getElementById('btnDeclareAttack').disabled=false;
-  document.getElementById('btnDeclareAttack').onclick=()=>executeAttack(null,'direct');
-  document.getElementById('btnCancelAction').style.display='block';
-  render();
-}
-
-function cancelAction() {
-  G.attackMode=false; G.selectedAttacker=null;
-  document.getElementById('btnDeclareAttack').textContent='攻撃宣言';
-  document.getElementById('btnDeclareAttack').onclick=declareAttack;
-  document.getElementById('btnCancelAction').style.display='none';
-  render();
-}
-
-async function executeAttack(target, type) {
-  if(!G.selectedAttacker||G.gameOver) return;
-  const attacker = G.selectedAttacker;
-  const atk = getEffectiveAtk(attacker,'player');
-
-  if(type==='monster') {
-    const hasVanguard = G.cpu.field.some(c=>c.keywords.includes('前衛'))||(G.cpu.partner.onField&&G.cpu.partner.keywords.includes('前衛'));
-    if(hasVanguard&&!target.keywords.includes('前衛')){ log('前衛持ちを優先して攻撃してください','system'); return; }
-    const defAtk = getEffectiveAtk(target,'cpu');
-    log(`【${attacker.name}】ATK:${atk} ⚔ 【${target.name}】ATK:${defAtk}`,'player');
-    await dealDmgToMon('cpu',target,atk,attacker.name);
-    const dead = target.curLife<=0;
-    if(!dead&&!G.gameOver){ await dealDmgToMon('player',attacker,defAtk,`${target.name}の反撃`); }
-    else if(!G.gameOver){ log(`${target.name}は破壊されたため反撃なし`,'system'); }
-    attacker.hasAttacked=true;
-  } else if(type==='direct') {
-    const hasVanguard = G.cpu.field.some(c=>c.keywords.includes('前衛'))||(G.cpu.partner.onField&&G.cpu.partner.keywords.includes('前衛'));
-    if(hasVanguard){ log('前衛持ちがいるため直接攻撃できません（前衛を先に倒してください）','system'); return; }
-    if(G.cpu.shields.length===0) {
-      // シールドなし・前衛なし→トドメ
-      log(`CPUへの直撃！！ ゲーム終了！`,'win');
-      attacker.hasAttacked=true;
-      cancelAction();
-      endGame('player');
-      return;
+    if (ab.needsTag) {
+      // ★ テキスト入力 + datalist候補
+      const dlId = `abx-tag-${ab.id}-dl`;
+      extraHtml += `<div class="form-group" onclick="event.stopPropagation()">
+        <label>対象タグ（テキスト入力）</label>
+        <input type="text" id="abx-tag-${ab.id}" placeholder="例: ドラゴン"
+          list="${dlId}" oninput="update()" autocomplete="off">
+        <datalist id="${dlId}">${tags.map(t=>`<option value="${t}">`).join('')}</datalist>
+      </div>`;
     }
-    log(`【${attacker.name}】がCPUに直接攻撃！`,'player');
-    await breakShield('cpu', attacker.name);
-    attacker.hasAttacked=true;
-  }
-  cancelAction();
-  document.getElementById('btnDeclareAttack').textContent='攻撃宣言';
-  document.getElementById('btnDeclareAttack').onclick=declareAttack;
-  if(G.gameOver) return;
-  render();
-}
+    if (extraHtml) extraHtml = `<div class="ability-extra" onclick="event.stopPropagation()">${extraHtml}</div>`;
 
-// =====================================================
-// DAMAGE / DESTROY / BOUNCE
-// =====================================================
-async function dealDmgToMon(who, card, dmg, source) {
-  flashDamage(card, dmg);
-  card.curLife -= dmg;
-  log(`${source} → ${card.name}に${dmg}ダメージ（残LIFE:${card.curLife}）`,'damage');
-  render();
-  // 激昂：受けたダメージ分ATK永続上昇
-  if(card.keywords && card.keywords.includes('激昂') && card.curLife > 0) {
-    card.atk += dmg;
-    log(`【激昂】${card.name}のATKが${dmg}上昇！（現ATK:${card.atk}）`,'chain');
-  }
-  // リゼル常在：ダメージ受けるたび2枚ドロー
-  if(G.cpu.partner.onField && G.cpu.partner.name==='深淵王リゼル' && who==='cpu') {
-    drawCards('cpu',2,'リゼル（常在）');
-  }
-  if(card.curLife<=0) await destroyMonster(who,card,source);
-}
-
-async function destroyMonster(who, card, source) {
-  // 破壊アニメ再生
-  await animateDestroy(card);
-  showBanner(`💀 ${card.name} 破壊！`, '#cc2244', 800);
-
-  // パートナーかどうかを先に判定
-  const isPartnerCard = G[who].partner.onField && G[who].partner.id===card.id;
-
-  // フィールドから除去
-  G[who].field = G[who].field.filter(c=>c.id!==card.id);
-
-  if(isPartnerCard) {
-    G[who].partner.onField=false;
-    G[who].partner.available=false;
-    log(`【${card.name}】破壊。パートナー消滅（再召喚不可）`,'damage');
-    // シールドが0の状態でパートナーが破壊された→負け
-    if(G[who].shields.length===0 && !G.gameOver) {
-      log(`シールドなし＋パートナー破壊！ ${who==='player'?'プレイヤー':'CPU'}の敗北！`,'win');
-      endGame(who==='cpu'?'player':'cpu');
-    }
-    return;
-  }
-  // 不死チェック（パートナーには適用しない）
-  if(card.keywords && card.keywords.includes('不死') && !card.revivedNext) {
-    card.revivedNext=true;
-    card.curLife=card.maxLife;
-    G[who].pendingRevive.push(card);
-    log(`【不死】${card.name}は次のターン開始時に復活する…`,'chain');
-    showBanner('💀 不死発動…', '#aa44ff', 1200);
-    return;
-  }
-  G[who].grave.push(card);
-  log(`【${card.name}】が破壊された`,'damage');
-  if(card.onDeath) card.onDeath(who);
-}
-
-function bounceOneTarget(targetWho, actingWho, source) {
-  const targets = (targetWho==='cpu' ? allCpuMonsters() : allPlayerMonsters())
-    .filter(c=>!c.isPartner);
-  if(!targets.length){ log(`${source}: バウンス対象なし（パートナーは耐性あり）`,'system'); return; }
-  const t = targets.reduce((a,b)=>getEffectiveAtk(b,targetWho)>=getEffectiveAtk(a,targetWho)?b:a);
-  bounceMonster(targetWho, t, source);
-}
-
-function bounceMonster(who, card, source) {
-  G[who].field = G[who].field.filter(c=>c.id!==card.id);
-  if(G[who].partner.onField && G[who].partner.id===card.id){
-    G[who].partner.onField=false;
-    log(`${source}: パートナー${card.name}を手札に戻した`,'special');
-    return;
-  }
-  if(!card.isPartner){ G[who].hand.push({...card, id:newId(), curLife:card.life, tempAtk:0, justSummoned:false}); }
-  log(`${source}: 【${card.name}】を手札に戻した`,'special');
-}
-
-async function breakShield(who, source) {
-  if(G.gameOver) return;
-  const state = G[who];
-  if(state.shields.length===0) return;
-  const shield = state.shields.pop();
-  log(`${source}: ${who==='cpu'?'CPU':'プレイヤー'}のシールドを破壊！（残${state.shields.length}枚）`,'shield');
-  showBanner('💥 シールドブレイク！', who==='cpu'?'#ff6633':'#66aaff', 1000);
-  if(who==='cpu') G.player.cpuShieldsBroken = (G.player.cpuShieldsBroken||0) + 1;
-  if(state.shields.length===0 && state.partner.onField) {
-    // パートナーに前衛を付与（まだ持っていない場合）
-    if(!state.partner.keywords.includes('前衛')) {
-      state.partner.keywords = ['前衛', ...state.partner.keywords];
-    }
-    const label = who==='cpu' ? 'CPUのシールドがなくなった！【'+state.partner.name+'】を倒せば勝利！' : 'シールドがなくなった！【'+state.partner.name+'】が最後の砦！';
-    log(`🛡 ${label}`, 'system');
-    showBanner(`🛡 ${state.partner.name} 守護！`, who==='cpu'?'#ff6633':'#66aaff', 1500);
-  }
-  if(shield.keywords&&shield.keywords.includes('鼓動')) {
-    await triggerSTrigger(who, shield);
-  } else {
-    state.hand.push(shield);
-    log(`シールドが手札に（${shield.name}）`, who==='cpu'?'cpu':'player');
-  }
-  if(who==='cpu'&&checkPartnerCondition('player')) log('✨ ヴァルド召喚条件達成！メインフェイズにパートナーゾーンをクリック','special');
-  renderShields(who); renderStats();
-}
-
-function triggerSTrigger(who, card) {
-  G.triggerLock = true;
-  return new Promise(resolve => {
-    log(`⚡⚡ 鼓動発動！！【${card.name}】がシールドから炸裂！！`,'strigger');
-    showBanner('⚡ 鼓動！！', '#ffd700', 1500);
-    document.getElementById('striggerText').textContent = `${who==='player'?'🔥 プレイヤー':'💧 CPU'}のシールドから【${card.name}】が炸裂！`;
-    document.getElementById('striggerEffect').textContent = card.effect||'';
-    document.getElementById('striggerOverlay').style.display='flex';
-    G[who].grave.push(card);
-    setTimeout(async ()=>{
-      document.getElementById('striggerOverlay').style.display='none';
-      await executeSpellEffect(who, card);
-      render();
-      G.triggerLock = false;
-      resolve();
-    }, 2000);
+    el.innerHTML = `
+      <div class="ability-header">
+        <div><div class="aname">${ab.name}</div>
+        <div class="acost">+${ab.score}${ab.hasX?'×x':''}</div></div>
+      </div>
+      ${extraHtml}
+      <div class="ab-warn" id="ab-warn-${ab.id}"></div>
+      <div class="tip-bubble">${ab.tip}</div>
+    `;
+    el.addEventListener('click', ()=>toggleAbility(ab.id));
+    grid.appendChild(el);
   });
 }
 
-// =====================================================
-// HELPERS
-// =====================================================
-function allCpuMonsters() { return [...G.cpu.field, ...(G.cpu.partner.onField?[G.cpu.partner]:[])];}
-function allPlayerMonsters() { return [...G.player.field, ...(G.player.partner.onField?[G.player.partner]:[])];}
-
-// =====================================================
-// VISUAL EFFECTS
-// =====================================================
-function getCardEl(card) {
-  return document.querySelector(`[data-id="${card.id}"]`);
+function toggleAbility(id) {
+  document.getElementById(`ab-${id}`)?.classList.toggle('active');
+  update();
 }
 
-function flashDamage(card, dmg) {
-  const el = getCardEl(card);
-  if(!el) return;
-  el.classList.remove('damage-hit');
-  void el.offsetWidth;
-  el.classList.add('damage-hit');
-  setTimeout(()=>el.classList.remove('damage-hit'), 400);
-  // フロートダメージ数字
-  const rect = el.getBoundingClientRect();
-  const f = document.createElement('div');
-  f.className = 'float-damage';
-  f.textContent = `-${dmg}`;
-  f.style.left = (rect.left + rect.width/2 - 16) + 'px';
-  f.style.top = (rect.top + window.scrollY - 4) + 'px';
-  document.body.appendChild(f);
-  setTimeout(()=>f.remove(), 900);
+function getAbilityState(ab) {
+  const el = document.getElementById(`ab-${ab.id}`);
+  if (!el || !el.classList.contains('active')) return null;
+  const x   = ab.hasX   ? parseInt(document.getElementById(`abx-${ab.id}`)?.value||1) : 1;
+  const tag = ab.needsTag ? (document.getElementById(`abx-tag-${ab.id}`)?.value||'').trim() : '';
+  return { ...ab, x, tag };
 }
 
-function animateSummon(card) {
-  // render()後にDOMが更新されてからアニメ
-  requestAnimationFrame(()=>{
-    requestAnimationFrame(()=>{
-      const el = getCardEl(card);
-      if(!el) return;
-      el.classList.add('just-summoned');
-      setTimeout(()=>el.classList.remove('just-summoned'), 500);
-    });
-  });
+/* ─────────────────────────────
+   TRIGGERED EFFECTS
+───────────────────────────── */
+function addTriggered() {
+  triggeredEffects.push({ id: triggerId++ });
+  renderTriggered(); update();
+}
+function removeTriggered(id) {
+  triggeredEffects = triggeredEffects.filter(t=>t.id!==id);
+  renderTriggered(); update();
 }
 
-function animateDestroy(card) {
-  return new Promise(resolve=>{
-    const el = getCardEl(card);
-    if(!el){ resolve(); return; }
-    el.classList.add('being-destroyed');
-    setTimeout(resolve, 480);
-  });
-}
-
-function drawCards(who, n, source) {
-  let drawn=0;
-  for(let i=0;i<n;i++) if(G[who].deck.length>0){G[who].hand.push(G[who].deck.pop());drawn++;}
-  if(drawn>0) log(`${source}: ${drawn}枚ドロー`,who==='player'?'player':'cpu');
-}
-
-
-async function damageOneTarget2(who, opp, dmg, source) {
-  if(who==='player') {
-    const targets = allCpuMonsters();
-    if(!targets.length){ log(`${source}: 対象なし`,'system'); return; }
-    await new Promise(resolve=>{
-      showCardSelect('ダメージ対象', targets, async t=>{
-        if(t){ await dealDmgToMon('cpu',t,dmg,source); render(); }
-        resolve();
-      });
-    });
-  } else {
-    const t = pickTarget(opp);
-    if(t) await dealDmgToMon(opp,t,dmg,source);
-    else log(`${source}: 対象なし`,'system');
-  }
-}
-
-function destroyOneRandom(who, source) {
-  const targets = (who==='cpu' ? allCpuMonsters() : allPlayerMonsters())
-    .filter(c=>!c.isPartner);
-  if(!targets.length){ log(`${source}: 破壊対象なし（パートナーは耐性あり）`,'system'); return; }
-  const t = targets.reduce((a,b)=>a.curLife<=b.curLife?a:b);
-  log(`${source}: 【${t.name}】を破壊！`,'special');
-  destroyMonster(who, t, source);
-}
-
-function bounceNTargets(who, n, source) {
-  const targets = [...(who==='cpu' ? allCpuMonsters() : allPlayerMonsters())]
-    .filter(c=>!c.isPartner)
-    .sort((a,b)=>getEffectiveAtk(b,who)-getEffectiveAtk(a,who))
-    .slice(0, n);
-  if(!targets.length){ log(`${source}: バウンス対象なし`,'system'); return; }
-  log(`${source}: ${who==='cpu'?'CPU':'プレイヤー'}のモンスター${targets.length}体をバウンス！`,'special');
-  showBanner(`🌊 ${targets.length}体バウンス！`, '#00ccff', 1200);
-  targets.forEach(t=>bounceMonster(who, t, source));
-}
-
-function bounceAllTargets(who, source) {
-  const targets = (who==='cpu' ? allCpuMonsters() : allPlayerMonsters())
-    .filter(c=>!c.isPartner);
-  if(!targets.length){ log(`${source}: バウンス対象なし`,'system'); return; }
-  log(`${source}: ${who==='cpu'?'CPU':'プレイヤー'}の全モンスターをバウンス！`,'special');
-  showBanner('🌊 全体バウンス！', '#00ccff', 1200);
-  [...targets].forEach(t=>bounceMonster(who, t, source));
-}
-
-function buffRandomAlly(who, val, source) {
-  const allies = who==='player' ? [...G.player.field] : [...G.cpu.field];
-  if(!allies.length) return;
-  const t = allies[Math.floor(Math.random()*allies.length)];
-  t.tempAtk=(t.tempAtk||0)+val;
-  log(`${source}: ${t.name}のATK+${val}（このターン）`,'effect');
-}
-
-async function spreadDamage(who, dmg, source) {
-  const targets = who==='cpu' ? [...allCpuMonsters()] : [...allPlayerMonsters()];
-  if(!targets.length){log(`${source}: 対象なし`,'system');return;}
-  for(const t of targets){
-    if(G.gameOver) return;
-    await dealDmgToMon(who, t, dmg, source);
-  }
-}
-
-function pickTarget(who) {
-  const monsters = (who==='player'?allPlayerMonsters():allCpuMonsters())
-    .filter(c=>!c.isPartner);
-  if(!monsters.length) return null;
-  const vg = monsters.find(c=>c.keywords.includes('前衛'));
-  return vg || monsters.reduce((a,b)=>a.curLife<=b.curLife?a:b);
-}
-
-// =====================================================
-// CARD SELECT
-// =====================================================
-function showCardSelect(title, cards, cb) {
-  document.getElementById('cardSelectTitle').textContent = title;
-  const list = document.getElementById('cardSelectList');
+function renderTriggered() {
+  const list = document.getElementById('triggeredList');
   list.innerHTML = '';
-  if(!cards.length){ cb(null); return; }
-  cards.forEach(card=>{
-    const btn=document.createElement('button');
-    btn.className='select-card-btn';
-    btn.innerHTML=`${card.emoji} ${card.name}<br><small>ATK:${card.atk||'-'} LIFE:${card.curLife||card.life}</small>`;
-    btn.onclick=()=>{ closeCardSelect(); G.triggerLock=false; cb(card); };
-    list.appendChild(btn);
+  triggeredEffects.forEach(t => {
+    const el = document.createElement('div');
+    el.className = 'triggered-item';
+    el.id = `ti-${t.id}`;
+    el.innerHTML = `
+      <button class="remove-btn" onclick="removeTriggered(${t.id})">✕</button>
+      <div class="ti-grid">
+        <div class="form-group"><label>トリガー</label>
+          <select id="ti-trigger-${t.id}" onchange="refreshPreview(${t.id});update()">
+            ${TRIGGERS.map(tr=>`<option value="${tr.id}">${tr.name}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group"><label>アクション</label>
+          <select id="ti-action-${t.id}" onchange="updateParams(${t.id})">
+            ${ACTIONS.map(a=>`<option value="${a.id}">${a.name}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="ti-params hidden" id="ti-params-${t.id}"></div>
+      <div class="ti-tag-row hidden" id="ti-tag-row-${t.id}"></div>
+      <div class="ti-preview" id="ti-prev-${t.id}"></div>
+      <div class="ti-warn" id="ti-warn-${t.id}"></div>
+    `;
+    list.appendChild(el);
+    updateParams(t.id, true);
   });
-  document.getElementById('cardSelectModal').style.display='flex';
-  G.triggerLock = true;
-}
-function closeCardSelect(){ document.getElementById('cardSelectModal').style.display='none'; }
-
-// =====================================================
-// GAME OVER
-// =====================================================
-function endGame(winner) {
-  G.gameOver=true;
-  document.getElementById('gameoverOverlay').style.display='flex';
-  document.getElementById('gameoverTitle').textContent = winner==='player'?'勝利！':'敗北…';
-  document.getElementById('gameoverTitle').style.color = winner==='player'?'#ffd700':'#ff3355';
-  document.getElementById('gameoverSub').textContent = winner==='player'?'CPUを撃破した！オリカバトラー制覇！':'次こそリベンジ！';
 }
 
-// =====================================================
-// CPU AI
-// =====================================================
-function startCpuTurn() {
-  G.activePlayer='cpu'; G.phase='mana'; 
-  processRevive('cpu');
-  G.cpu.field.forEach(c=>{c.hasAttacked=false;c.canAttackThisTurn=true;c.justSummoned=false;c.tempAtk=0;});
-  if(G.cpu.partner.onField){G.cpu.partner.hasAttacked=false;G.cpu.partner.canAttackThisTurn=true;G.cpu.partner.justSummoned=false;}
-  log(`--- TURN ${G.turn} CPUのターン ---`,'system');
-  if(G.cpu.deck.length>0) G.cpu.hand.push(G.cpu.deck.pop());
-  render();
-  setTimeout(()=>cpuManaPhase(), 500);
-}
+function updateParams(id, init) {
+  const actionId = document.getElementById(`ti-action-${id}`)?.value;
+  const action   = ACTIONS.find(a=>a.id===actionId);
+  const paramsEl = document.getElementById(`ti-params-${id}`);
+  const tagRow   = document.getElementById(`ti-tag-row-${id}`);
+  if (!action||!paramsEl) return;
 
-function cpuManaPhase() {
-  if(G.gameOver) return;
-  G.phase='mana';
-  if(G.cpu.hand.length>0) {
-    // スペルより先にモンスターをキープ、余剰ENのカードをチャージ
-    const sorted = [...G.cpu.hand].sort((a,b)=>{
-      if(a.type==='spell'&&b.type!=='spell') return -1;
-      if(a.type!=='spell'&&b.type==='spell') return 1;
-      return a.en-b.en;
-    });
-    const card=sorted[0];
-    const idx=G.cpu.hand.indexOf(card);
-    G.cpu.hand.splice(idx,1);
-    G.cpu.mana.push(card);
-    log(`CPU: マナチャージ（${G.cpu.mana.length}EN）`,'cpu');
-  }
-  render();
-  setTimeout(()=>cpuMainPhase(), 600);
-}
-
-async function cpuMainPhase() {
-  if(G.gameOver) return;
-  G.phase='main'; G.cpu.manaUsed=0;
-  const mLeft=()=>G.cpu.mana.length-G.cpu.manaUsed+getAccelBonus('cpu');
-  const playable=()=>G.cpu.hand.filter(c=>c.type==='monster'&&c.en<=mLeft());
-  const spellable=()=>G.cpu.hand.filter(c=>c.type==='spell'&&c.en<=mLeft());
-  const playerHasMonsters=()=>G.player.field.length>0||G.player.partner.onField;
-
-  // パートナー召喚（最優先）
-  if(checkPartnerCondition('cpu')) await summonPartner('cpu');
-  if(G.gameOver){render();return;}
-
-  // 除去スペル
-  if(playerHasMonsters()) {
-    const rmv=spellable().filter(c=>['damage_one','damage_all','bounce_one','bounce_draw','bounce_all','destroy_one','fire_storm'].includes(c.spellType));
-    rmv.sort((a,b)=>b.en-a.en);
-    if(rmv[0]&&!G.gameOver) await castSpell('cpu',rmv[0],G.cpu.hand.indexOf(rmv[0]));
-  }
-  if(G.gameOver){render();return;}
-
-  // モンスター召喚
-  let tries=0;
-  while(tries++<8&&!G.gameOver) {
-    const avail=playable();
-    if(!avail.length) break;
-    const hasGuard=G.cpu.field.some(c=>c.keywords.includes('前衛'));
-    avail.sort((a,b)=>{
-      if(!hasGuard){const ag=a.keywords.includes('前衛')?1:0,bg=b.keywords.includes('前衛')?1:0;if(ag!==bg)return bg-ag;}
-      return b.atk-a.atk;
-    });
-    await castMonsterCpu(avail[0]);
-    await new Promise(r=>setTimeout(r,300));
-  }
-  if(G.gameOver){render();return;}
-
-  // ドロースペル
-  if(G.cpu.hand.length<=3){
-    for(const s of spellable().filter(c=>c.spellType==='draw')){
-      if(G.gameOver) break;
-      await castSpell('cpu',s,G.cpu.hand.indexOf(s));
-    }
-  }
-  if(G.gameOver){render();return;}
-
-  render();
-  await new Promise(r=>setTimeout(r,700));
-  cpuBattlePhase();
-}
-
-async function castMonsterCpu(card) {
-  const idx=G.cpu.hand.indexOf(card);
-  if(idx<0) return;
-  summonMonster('cpu',card,idx);
-}
-
-async function cpuBattlePhase() {
-  if(G.gameOver) return;
-  G.phase='battle';
-  const attackers=[
-    ...G.cpu.field.filter(c=>c.canAttackThisTurn&&!c.hasAttacked),
-    ...(G.cpu.partner.onField&&G.cpu.partner.canAttackThisTurn&&!G.cpu.partner.hasAttacked?[G.cpu.partner]:[])
-  ].sort((a,b)=>getEffectiveAtk(b,'cpu')-getEffectiveAtk(a,'cpu'));
-
-  for(const attacker of attackers) {
-    if(G.gameOver) return;
-    await new Promise(r=>setTimeout(r, 700));
-    if(G.gameOver) return;
-    await cpuAttackWith(attacker);
-    render();
-  }
-  if(!G.gameOver){
-    G.phase='end'; render();
-    await new Promise(r=>setTimeout(r, 400));
-    if(!G.gameOver){ log('CPUターン終了','cpu'); G.turn++; startPlayerTurn(); }
-  }
-}
-
-async function cpuAttackWith(attacker) {
-  if(attacker.hasAttacked||G.gameOver) return;
-  // トリガー処理中は待機
-  while(G.triggerLock) { await new Promise(r=>setTimeout(r,200)); }
-  if(G.gameOver) return;
-  const atk=getEffectiveAtk(attacker,'cpu');
-  const pmons = G.player.field.slice();
-  // パートナーが前衛持ち（シールド0で付与済み）なら前衛リストに含める
-  const partnerVg = G.player.partner.onField && G.player.partner.keywords.includes('前衛') ? G.player.partner : null;
-  const vgs = [
-    ...pmons.filter(c=>c.keywords.includes('前衛')),
-    ...(partnerVg ? [partnerVg] : [])
-  ];
-
-  if(vgs.length>0) {
-    const target=vgs.reduce((a,b)=>a.curLife<=b.curLife?a:b);
-    const defAtk=getEffectiveAtk(target,'player');
-    log(`CPU: 【${attacker.name}】ATK:${atk} ⚔ 【${target.name}】（前衛）ATK:${defAtk}`,'cpu');
-    await dealDmgToMon('player',target,atk,attacker.name);
-    const dead=target.curLife<=0;
-    if(!dead&&!G.gameOver) await dealDmgToMon('cpu',attacker,defAtk,`${target.name}の反撃`);
-  } else if(pmons.length>0) {
-    const killable=pmons.filter(c=>c.curLife<=atk);
-    if(killable.length>0) {
-      const target=killable.reduce((a,b)=>getEffectiveAtk(b,'player')>=getEffectiveAtk(a,'player')?b:a);
-      const defAtk=getEffectiveAtk(target,'player');
-      log(`CPU: 【${attacker.name}】ATK:${atk} ⚔ 【${target.name}】ATK:${defAtk}`,'cpu');
-      await dealDmgToMon('player',target,atk,attacker.name);
-      const dead=target.curLife<=0;
-      if(!dead&&!G.gameOver) await dealDmgToMon('cpu',attacker,defAtk,`${target.name}の反撃`);
-    } else {
-      log(`CPU: 【${attacker.name}】がシールドに直接攻撃！`,'cpu');
-      await breakShield('player',attacker.name);
-    }
-  } else if(partnerVg) {
-    // 通常モンスターなし・パートナーが前衛守護中→パートナーに攻撃
-    const target = partnerVg;
-    const defAtk = getEffectiveAtk(target,'player');
-    log(`CPU: 【${attacker.name}】ATK:${atk} ⚔ 【${target.name}】（守護）ATK:${defAtk}`,'cpu');
-    await dealDmgToMon('player',target,atk,attacker.name);
-    const dead=target.curLife<=0;
-    if(!dead&&!G.gameOver) await dealDmgToMon('cpu',attacker,defAtk,`${target.name}の反撃`);
+  // numeric params
+  if (action.params.length===0) {
+    paramsEl.classList.add('hidden'); paramsEl.innerHTML='';
   } else {
-    // シールドなし・モンスターなし・パートナーなし→トドメ
-    if(G.player.shields.length===0) {
-      log(`CPU: 【${attacker.name}】がプレイヤーに直接攻撃！ ゲーム終了！`,'cpu');
-      attacker.hasAttacked=true;
-      endGame('cpu');
-      return;
-    }
-    log(`CPU: 【${attacker.name}】がプレイヤーに直接攻撃！`,'cpu');
-    await breakShield('player',attacker.name);
+    paramsEl.classList.remove('hidden');
+    paramsEl.innerHTML = action.params.map(p=>`
+      <div class="form-group"><label>パラメータ ${p.toUpperCase()}</label>
+        <input type="number" id="ti-param-${p}-${id}" value="1" min="1" max="99"
+          oninput="refreshPreview(${id});update()"></div>`).join('');
   }
-  attacker.hasAttacked=true;
+
+  // ★ タグ自由入力（テキストボックス + datalist）
+  if (tagRow) {
+    if (action.needsTag) {
+      tagRow.classList.remove('hidden');
+      const dlId = `ti-tag-dl-${id}`;
+      tagRow.innerHTML = `<div class="form-group">
+        <label>対象タグ（テキスト入力）</label>
+        <input type="text" id="ti-tag-${id}" placeholder="例: ドラゴン"
+          list="${dlId}" oninput="refreshPreview(${id});update()" autocomplete="off">
+        <datalist id="${dlId}">${tags.map(t=>`<option value="${t}">`).join('')}</datalist>
+      </div>`;
+    } else {
+      tagRow.classList.add('hidden'); tagRow.innerHTML='';
+    }
+  }
+
+  refreshPreview(id);
+  if (!init) update();
 }
 
-// =====================================================
-// RESTART
-// =====================================================
-function restartGame() {
-  document.getElementById('gameoverOverlay').style.display='none';
-  document.getElementById('gameLog').innerHTML='';
-  document.getElementById('btnDeclareAttack').textContent='攻撃宣言';
-  document.getElementById('btnDeclareAttack').onclick=declareAttack;
-  document.getElementById('btnCancelAction').style.display='none';
-  cardIdCounter=0;
-  initGame();
+function refreshPreview(id) {
+  const trigId  = document.getElementById(`ti-trigger-${id}`)?.value;
+  const trigger = TRIGGERS.find(t=>t.id===trigId);
+  const actionId= document.getElementById(`ti-action-${id}`)?.value;
+  const action  = ACTIONS.find(a=>a.id===actionId);
+  const el      = document.getElementById(`ti-prev-${id}`);
+  if (!el||!trigger||!action) return;
+  const x   = parseInt(document.getElementById(`ti-param-x-${id}`)?.value||1);
+  const y   = parseInt(document.getElementById(`ti-param-y-${id}`)?.value||1);
+  const tag = (document.getElementById(`ti-tag-${id}`)?.value||'').trim();
+  const txt = action.params.includes('y') ? action.textFn(x,y,tag)
+    : action.params.includes('x') ? action.textFn(x,y,tag)
+    : action.textFn(x,y,tag);
+  const warnPart = action.needsTag && !tag ? ' ⚠ タグを入力してください' : '';
+  el.textContent = `→ ${trigger.detail}${txt}。${warnPart}`;
 }
 
-// =====================================================
-// INIT
-// =====================================================
-// onSummon/onDeathのclosure修正（whoを外から渡す必要があるので呼び出し側で処理）
-// summonMonster内でfc.onSummonを呼ぶ時はwhoを渡す設計なのでOK
-initGame();
+function getTriggeredScore() {
+  let total=0;
+  triggeredEffects.forEach(t=>{
+    const action=ACTIONS.find(a=>a.id===document.getElementById(`ti-action-${t.id}`)?.value);
+    if (!action) return;
+    const x=parseInt(document.getElementById(`ti-param-x-${t.id}`)?.value||1);
+    const y=parseInt(document.getElementById(`ti-param-y-${t.id}`)?.value||1);
+    if (action.id==='deploy') total+=action.score*x*y;
+    else if (action.params.includes('x')) total+=action.score*x;
+    else total+=action.score;
+  });
+  return total;
+}
+
+/* ─────────────────────────────
+   CONDITIONS
+───────────────────────────── */
+function addCondition() {
+  conditions.push({ id: condId++ });
+  renderConditions(); update();
+}
+function removeCondition(id) {
+  conditions=conditions.filter(c=>c.id!==id);
+  renderConditions(); update();
+}
+function renderConditions() {
+  const list=document.getElementById('conditionsList');
+  list.innerHTML='';
+  conditions.forEach(c=>{
+    const el=document.createElement('div');
+    el.id=`cond-${c.id}`;
+    el.style.cssText='display:grid;grid-template-columns:1fr 1fr auto;gap:.4rem;align-items:end;margin-bottom:.5rem';
+    el.innerHTML=`
+      <div class="form-group"><label>条件タイプ</label>
+        <select id="cond-type-${c.id}" onchange="updateCondUI(${c.id})">
+          ${COND_TYPES.map(ct=>`<option value="${ct.id}">${ct.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group" id="cond-tag-wrap-${c.id}">
+        <label>対象タグ</label>
+        <input type="text" id="cond-tag-${c.id}" placeholder="例: ドラゴン"
+          list="cond-tag-dl-${c.id}" oninput="update()" autocomplete="off">
+        <datalist id="cond-tag-dl-${c.id}">${tags.map(t=>`<option value="${t}">`).join('')}</datalist>
+      </div>
+      <div class="form-group"><label>閾値 n</label>
+        <input type="number" id="cond-n-${c.id}" value="1" min="1" max="99" oninput="update()">
+      </div>
+      <button class="remove-btn" style="position:static" onclick="removeCondition(${c.id})">✕</button>
+    `;
+    list.appendChild(el);
+    updateCondUI(c.id,true);
+  });
+}
+function updateCondUI(id,init) {
+  const type=document.getElementById(`cond-type-${id}`)?.value;
+  const ct=COND_TYPES.find(x=>x.id===type);
+  const wrap=document.getElementById(`cond-tag-wrap-${id}`);
+  if (wrap) wrap.style.display=ct?.needsTag?'':'none';
+  if (!init) update();
+}
+function buildConditionsArray() {
+  return conditions.map(c=>{
+    const type=document.getElementById(`cond-type-${c.id}`)?.value||'tagCount';
+    const tag=(document.getElementById(`cond-tag-${c.id}`)?.value||'').trim();
+    const n=parseInt(document.getElementById(`cond-n-${c.id}`)?.value||1);
+    const ct=COND_TYPES.find(x=>x.id===type);
+    return { type, tag:ct?.needsTag?tag:undefined, n, text:ct?.template(tag,n)||'' };
+  });
+}
+
+/* ─────────────────────────────
+   EFFECT DESCRIPTION
+───────────────────────────── */
+function buildEffectDescription(name,atk,hp,cost,staticAbilities,triggers,condArr) {
+  const L=[];
+  L.push(`【${name||'カード名未設定'}】`);
+  L.push(`ATK: ${atk}  /  HP: ${hp}  /  Cost: ${cost}`);
+  if (staticAbilities.length>0) {
+    L.push(''); L.push('＜常在能力＞');
+    staticAbilities.forEach(ab=>L.push(ab.textFn(ab.x,ab.tag)));
+  }
+  if (triggers.length>0) {
+    L.push(''); L.push('＜誘発能力＞');
+    triggers.forEach(t=>{
+      const trigObj=TRIGGERS.find(tr=>tr.id===document.getElementById(`ti-trigger-${t.id}`)?.value);
+      const action=ACTIONS.find(a=>a.id===document.getElementById(`ti-action-${t.id}`)?.value);
+      if (!trigObj||!action) return;
+      const x=parseInt(document.getElementById(`ti-param-x-${t.id}`)?.value||1);
+      const y=parseInt(document.getElementById(`ti-param-y-${t.id}`)?.value||1);
+      const tag=(document.getElementById(`ti-tag-${t.id}`)?.value||'').trim();
+      const txt=action.params.includes('y')?action.textFn(x,y,tag)
+        :action.params.includes('x')?action.textFn(x,y,tag):action.textFn(x,y,tag);
+      L.push(`【${trigObj.name}】${trigObj.detail}${txt}。`);
+    });
+  }
+  if (condArr.length>0) { L.push(''); L.push('＜発動条件＞'); condArr.forEach(c=>L.push(`・${c.text}`)); }
+  const flavor=document.getElementById('flavorText')?.value?.trim();
+  if (flavor) { L.push(''); L.push(`「${flavor}」`); }
+  return L.join('\n');
+}
+
+/* ─────────────────────────────
+   MAIN UPDATE
+───────────────────────────── */
+function update() {
+  // datalist を最新タグで更新
+  refreshAllDataLists();
+
+  const name=document.getElementById('cardName')?.value||'';
+  const atk=parseInt(document.getElementById('atkVal')?.value||0);
+  const hp=parseInt(document.getElementById('hpVal')?.value||1);
+  const type=document.getElementById('cardType')?.value||'Monster';
+  const civ=document.getElementById('civType')?.value||'None';
+
+  const baseCost=Math.floor((atk+hp)/4);
+  let staticScore=0; const activeStatic=[];
+  STATIC_ABILITIES.forEach(ab=>{
+    const s=getAbilityState(ab);
+    if (s) { staticScore+=ab.hasX?ab.score*s.x:ab.score; activeStatic.push(s); }
+  });
+  const trigScore=getTriggeredScore();
+  const finalCost=Math.max(1,Math.min(10,Math.floor(baseCost+staticScore+trigScore)));
+  const condArr=buildConditionsArray();
+  const effectText=buildEffectDescription(name,atk,hp,finalCost,activeStatic,triggeredEffects,condArr);
+
+  document.getElementById('baseCostVal').textContent=baseCost;
+  document.getElementById('staticScore').textContent=`+${staticScore.toFixed(1)}`;
+  document.getElementById('triggerScore').textContent=`+${trigScore.toFixed(1)}`;
+  document.getElementById('finalCostVal').textContent=finalCost;
+  document.getElementById('previewName').textContent=name||'名称未設定';
+  document.getElementById('previewCost').textContent=finalCost;
+  document.getElementById('previewAtk').textContent=atk;
+  document.getElementById('previewHp').textContent=hp;
+  document.getElementById('previewBase').textContent=baseCost;
+  document.getElementById('previewType').textContent=`${type} / ${civ}`;
+  document.getElementById('previewIcon').textContent=civIcons[civ]||'⚔️';
+  document.getElementById('previewText').textContent=effectText;
+  document.getElementById('previewTags').innerHTML=tags.map(t=>`<span class="cp-tag">${t}</span>`).join('');
+  triggeredEffects.forEach(t=>refreshPreview(t.id));
+}
+
+/* ─────────────────────────────
+   BUILD JSON (single card)
+───────────────────────────── */
+function buildJSON() {
+  const name=document.getElementById('cardName')?.value||'名称未設定';
+  const atk=parseInt(document.getElementById('atkVal')?.value||0);
+  const hp=parseInt(document.getElementById('hpVal')?.value||1);
+  const type=document.getElementById('cardType')?.value||'Monster';
+  const civ=document.getElementById('civType')?.value||'None';
+
+  const baseCost=Math.floor((atk+hp)/4);
+  let staticScore=0; const activeStatic=[];
+  STATIC_ABILITIES.forEach(ab=>{
+    const s=getAbilityState(ab);
+    if (s) { staticScore+=ab.hasX?ab.score*s.x:ab.score; activeStatic.push(s); }
+  });
+  const trigScore=getTriggeredScore();
+  const finalCost=Math.max(1,Math.min(10,Math.floor(baseCost+staticScore+trigScore)));
+  const condArr=buildConditionsArray();
+  const effectText=buildEffectDescription(name,atk,hp,finalCost,activeStatic,triggeredEffects,condArr);
+
+  const staticArr=activeStatic.map(ab=>{
+    const o={type:ab.id,label:ab.name,params:{}};
+    if (ab.hasX) o.params.value=ab.x;
+    if (ab.needsTag) o.params.tag=ab.tag||null;
+    return o;
+  });
+  const trigArr=triggeredEffects.map(t=>{
+    const trigObj=TRIGGERS.find(tr=>tr.id===document.getElementById(`ti-trigger-${t.id}`)?.value);
+    const action=ACTIONS.find(a=>a.id===document.getElementById(`ti-action-${t.id}`)?.value);
+    if (!action||!trigObj) return null;
+    const x=parseInt(document.getElementById(`ti-param-x-${t.id}`)?.value||1);
+    const y=parseInt(document.getElementById(`ti-param-y-${t.id}`)?.value||1);
+    const tag=(document.getElementById(`ti-tag-${t.id}`)?.value||'').trim()||null;
+    const params={};
+    if (action.params.includes('x')) params.x=x;
+    if (action.params.includes('y')) params.y=y;
+    if (action.needsTag) params.tag=tag;
+    return { trigger:trigObj.name, triggerDetail:trigObj.detail, effects:[{type:action.id,label:action.name,params}] };
+  }).filter(Boolean);
+  const condJSON=condArr.map(c=>{ const o={type:c.type,n:c.n}; if(c.tag) o.tag=c.tag; return o; });
+
+  return {
+    cardId:generateUUID(), name, civilization:civ, type,
+    cost:{type:'EN',value:finalCost},
+    tags:[...tags],
+    stats:{attack:atk,hp},
+    effectDescription:effectText,
+    effects:trigArr,
+    staticAbilities:staticArr,
+    conditions:condJSON
+  };
+}
+
+/* ─────────────────────────────
+   UUID
+───────────────────────────── */
+function generateUUID() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{
+    const r=Math.random()*16|0; return(c==='x'?r:(r&0x3|0x8)).toString(16);
+  });
+}
+
+/* ─────────────────────────────
+   SINGLE CARD EXPORT
+───────────────────────────── */
+let jsonVisible=false;
+function toggleJson(){
+  const el=document.getElementById('jsonPreview');
+  jsonVisible=!jsonVisible;
+  if(jsonVisible){el.textContent=JSON.stringify(buildJSON(),null,2);el.classList.add('visible');}
+  else el.classList.remove('visible');
+}
+function exportSingleJson(){
+  const j=buildJSON();
+  const blob=new Blob([JSON.stringify(j,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=`${j.cardId}.json`;
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+/* ─────────────────────────────
+   DECK MANAGEMENT
+───────────────────────────── */
+function addToDeck() {
+  const j = buildJSON();
+  const name = j.name;
+  if (!name || name === '名称未設定') {
+    alert('カード名を入力してください'); return;
+  }
+  const total = deckCards.reduce((s,c)=>s+c.count,0);
+  if (total >= 40) {
+    alert('デッキが満杯です（40枚）'); return;
+  }
+  // 同名カードがあればcountを増やす
+  const existing = deckCards.find(c=>c.cardJson.name===j.name);
+  if (existing) {
+    if (existing.count>=4) { alert('同名カードは4枚まで'); return; }
+    existing.count++;
+    existing.cardJson = j; // JSONは最新で上書き
+  } else {
+    deckCards.push({ cardJson: j, count: 1 });
+  }
+  updateDeckTabCount();
+  renderDeck();
+  // フィードバック
+  const btn = event.target;
+  const orig = btn.textContent;
+  btn.textContent = `✓ ${name} をデッキに追加`;
+  btn.style.background = 'rgba(74,222,128,.2)';
+  setTimeout(()=>{ btn.textContent=orig; btn.style.background=''; }, 1800);
+}
+
+function updateDeckTabCount() {
+  const total = deckCards.reduce((s,c)=>s+c.count,0);
+  document.getElementById('deckCount').textContent = total;
+}
+
+function changeCount(idx, delta) {
+  deckCards[idx].count = Math.max(0, Math.min(4, deckCards[idx].count + delta));
+  if (deckCards[idx].count === 0) deckCards.splice(idx, 1);
+  updateDeckTabCount();
+  renderDeck();
+  updateDeckPreview();
+}
+
+function clearDeck() {
+  if (!confirm('デッキをすべてクリアしますか？')) return;
+  deckCards = [];
+  updateDeckTabCount();
+  renderDeck();
+}
+
+function renderDeck() {
+  const list = document.getElementById('deckCardList');
+  const total = deckCards.reduce((s,c)=>s+c.count,0);
+  const types = deckCards.length;
+  const remain = 40 - total;
+
+  document.getElementById('deckTotal').textContent = total;
+  document.getElementById('deckTotal').className = `ds-val ${total>40?'warn':total===40?'ok':''}`;
+  document.getElementById('deckTypes').textContent = types;
+  document.getElementById('deckRemain').textContent = remain;
+  document.getElementById('deckRemain').className = `ds-val ${remain<0?'warn':remain===0?'ok':''}`;
+
+  if (deckCards.length === 0) {
+    list.innerHTML='<div class="empty-state"><div class="es-icon">🃏</div>カード作成タブでカードを作り、<br>「デッキに追加」ボタンを押してください</div>';
+    return;
+  }
+
+  list.innerHTML='<div class="deck-card-list">' + deckCards.map((c,i)=>{
+    const j = c.cardJson;
+    const civIcon = civIcons[j.civilization]||'⚔️';
+    return `<div class="deck-card-row">
+      <div>
+        <div class="dcr-name">${civIcon} ${j.name}</div>
+        <div class="dcr-sub">ATK:${j.stats.attack} HP:${j.stats.hp} / EN:${j.cost.value} / ${j.type}</div>
+      </div>
+      <div class="dcr-badge">×${c.count}</div>
+      <div class="count-ctrl">
+        <button class="count-btn" onclick="changeCount(${i},-1)">−</button>
+        <span class="count-num">${c.count}</span>
+        <button class="count-btn" onclick="changeCount(${i},+1)">＋</button>
+      </div>
+    </div>`;
+  }).join('') + '</div>';
+
+  updateDeckPreview();
+}
+
+/* ─────────────────────────────
+   DECK JSON BUILD
+───────────────────────────── */
+function buildDeckJSON() {
+  const now = new Date().toISOString().replace('Z','+09:00').replace(/\.\d{3}/,'');
+  return {
+    playerId: document.getElementById('playerId')?.value?.trim() || 'player_001',
+    deckId: generateUUID(),
+    name: document.getElementById('deckName')?.value?.trim() || 'サンプルデッキ',
+    partner: { cardId: null },
+    main: deckCards.map(c=>({ cardId: c.cardJson.cardId, count: c.count })),
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+let deckJsonVisible=false;
+function toggleDeckJson(){
+  const el=document.getElementById('deckJsonPreview');
+  deckJsonVisible=!deckJsonVisible;
+  if(deckJsonVisible){el.textContent=JSON.stringify(buildDeckJSON(),null,2);el.classList.add('visible');}
+  else el.classList.remove('visible');
+}
+function updateDeckPreview(){
+  const el=document.getElementById('deckJsonPreview');
+  if(deckJsonVisible) el.textContent=JSON.stringify(buildDeckJSON(),null,2);
+}
+
+/* ─────────────────────────────
+   ZIP EXPORT
+───────────────────────────── */
+async function exportDeckZip() {
+  if (deckCards.length===0) { alert('デッキにカードがありません'); return; }
+
+  const zip = new JSZip();
+  const deckName = (document.getElementById('deckName')?.value?.trim()||'deck').replace(/[^\w\-]/g,'_');
+
+  // フォルダ1: cards/ → カードJSON × 枚数分 (同じカードが複数枚なら _1 _2 で区別)
+  const cardsFolder = zip.folder('cards');
+  const nameCount={};
+  deckCards.forEach(c=>{
+    for (let i=0;i<c.count;i++) {
+      const safeName = c.cardJson.name.replace(/[^\w\u3040-\u9fff\-]/g,'_');
+      nameCount[safeName]=(nameCount[safeName]||0)+1;
+      const suffix = c.count>1 ? `_${nameCount[safeName]}` : '';
+      const fname = `${c.cardJson.cardId}${suffix}.json`;
+      cardsFolder.file(fname, JSON.stringify(c.cardJson, null, 2));
+    }
+  });
+
+  // フォルダ2: deck.json (ルート)
+  zip.file('deck.json', JSON.stringify(buildDeckJSON(), null, 2));
+
+  // README
+  const total = deckCards.reduce((s,c)=>s+c.count,0);
+  zip.file('README.txt',
+    `Orica Generator v4 Export\n` +
+    `Deck: ${document.getElementById('deckName')?.value||'サンプルデッキ'}\n` +
+    `Cards: ${total} / 40\n` +
+    `Types: ${deckCards.length}\n` +
+    `Generated: ${new Date().toLocaleString('ja-JP')}\n\n` +
+    `Structure:\n` +
+    `  cards/           → 各カードのJSONファイル（cardId.json）\n` +
+    `  deck.json        → デッキ構成ファイル\n`
+  );
+
+  const blob = await zip.generateAsync({type:'blob'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${deckName}_export.zip`;
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+/* ─────────────────────────────
+   INIT
+───────────────────────────── */
+buildAbilityGrid();
+update();
 </script>
 </body>
 </html>
