@@ -1,1353 +1,573 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>オリカジェネレーター v4</title>
-<link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Noto+Serif+JP:wght@400;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<!--
+  オリカジェネレーター ／ オリカバトラー
+  ・v4/v5のJSON構造を正本として踏襲。効果処理はエンジニア側が実装するので、ここは「サンプルJSONを出す器」。
+  ・今日の確定を反映: シールド廃止→ライフ制(actionのtarget=Player/SelfPlayer)／モンスターHP累積／
+    文明で作れる効果を縛らない(COLOR_PIE廃止＝全動詞・全KWが常に選べる。文明はフレーバー＋将来のステージ用)。
+  ・スコープはtrigger名に畳む(OnSummon / OnAllySummon / OnEnemySummon …)。
+  JSON出力スキーマ:
+  { cardId, name, civilizations:[], type, cost:{type:"EN",value}, tags:[],
+    stats:{attack,defense}, effectDescription,
+    effects:[ {trigger, conditions:{}, actions:[{type,target,selection,count,value}]} ],
+    continuousEffects:[ {conditions:{}, modifiers:[{type,value}]} ],
+    conditions:[] }
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>オリカジェネレーター — オリカバトラー</title>
 <style>
-/* ═══════════════════════════════════════
-   CIV PALETTE
-═══════════════════════════════════════ */
-:root{
-  --bg:#0a0a0f;--surface:#12121a;--border:#2a2a40;
-  --gold:#f5c518;--text:#e8e8f0;--text-dim:#8888aa;
-  --red:#f87171;--green:#4ade80;--blue:#60a5fa;--warn:#fbbf24;
-  --civ-a:#7c6af7;--civ-b:#c084fc;--civ-glow:rgba(124,106,247,.13);
-}
-body.civ-None    {--civ-a:#7c6af7;--civ-b:#c084fc;--civ-glow:rgba(124,106,247,.13)}
-body.civ-Fire    {--civ-a:#f97316;--civ-b:#fbbf24;--civ-glow:rgba(249,115,22,.13)}
-body.civ-Water   {--civ-a:#3b82f6;--civ-b:#67e8f9;--civ-glow:rgba(59,130,246,.13)}
-body.civ-Nature  {--civ-a:#22c55e;--civ-b:#86efac;--civ-glow:rgba(34,197,94,.13)}
-body.civ-Darkness{--civ-a:#a855f7;--civ-b:#e879f9;--civ-glow:rgba(168,85,247,.13)}
-body.civ-Light   {--civ-a:#eab308;--civ-b:#fde68a;--civ-glow:rgba(234,179,8,.13)}
-
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--text);font-family:'Noto Serif JP',serif;min-height:100vh;overflow-x:hidden}
-body::before{content:'';position:fixed;top:-50%;left:-50%;width:200%;height:200%;
-  background:radial-gradient(ellipse at 20% 20%,var(--civ-glow) 0%,transparent 50%),
-             radial-gradient(ellipse at 80% 80%,var(--civ-glow) 0%,transparent 50%);
-  pointer-events:none;z-index:0}
-
-/* ═══ HEADER ═══ */
-header{text-align:center;padding:1.5rem 1rem 1.1rem;position:relative;z-index:1;border-bottom:1px solid var(--border)}
-header h1{font-family:'Cinzel Decorative',serif;font-size:clamp(1rem,3vw,1.8rem);
-  background:linear-gradient(135deg,var(--gold),var(--civ-b),var(--civ-a));
-  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;letter-spacing:.1em}
-header p{color:var(--text-dim);font-size:.7rem;margin-top:.22rem;font-family:'JetBrains Mono',monospace}
-.v-badge{display:inline-block;background:var(--civ-glow);border:1px solid var(--civ-a);
-  border-radius:20px;padding:.04rem .5rem;font-size:.58rem;color:var(--civ-b);
-  font-family:'JetBrains Mono',monospace;margin-left:.45rem;vertical-align:middle}
-
-/* ═══ TAB NAV ═══ */
-.tab-nav{display:flex;gap:0;border-bottom:1px solid var(--border);position:relative;z-index:1;
-  background:var(--surface);padding:0 1.5rem}
-.tab-btn{padding:.75rem 1.5rem;font-family:'Noto Serif JP',serif;font-size:.82rem;
-  cursor:pointer;background:none;border:none;color:var(--text-dim);
-  border-bottom:2px solid transparent;transition:all .2s;position:relative;top:1px}
-.tab-btn.active{color:var(--civ-b);border-bottom-color:var(--civ-a);font-weight:700}
-.tab-btn:hover:not(.active){color:var(--text)}
-.tab-count{display:inline-flex;align-items:center;justify-content:center;
-  background:var(--civ-glow);border:1px solid var(--civ-a);border-radius:20px;
-  padding:.02rem .45rem;font-size:.6rem;color:var(--civ-b);margin-left:.4rem;
-  font-family:'JetBrains Mono',monospace}
-
-/* ═══ PAGES ═══ */
-.page{display:none}.page.active{display:block}
-
-/* ═══ LAYOUT ═══ */
-.app{display:grid;grid-template-columns:1fr 330px;gap:1.4rem;max-width:1280px;
-  margin:0 auto;padding:1.4rem;position:relative;z-index:1;align-items:start}
-@media(max-width:900px){.app{grid-template-columns:1fr}.preview-col{position:static!important}}
-.preview-col{position:sticky;top:1.4rem}
-
-/* ═══ PANELS ═══ */
-.panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.2rem;margin-bottom:.9rem}
-.panel-title{font-family:'Cinzel Decorative',serif;font-size:.68rem;color:var(--civ-b);
-  letter-spacing:.15em;text-transform:uppercase;margin-bottom:.85rem;padding-bottom:.48rem;
-  border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.42rem}
-.panel-title::before{content:'◆';color:var(--gold);font-size:.5rem}
-.subtitle{font-size:.67rem;color:var(--text-dim);margin-bottom:.6rem}
-
-/* ═══ FORM ═══ */
-.form-row{display:grid;grid-template-columns:1fr 1fr;gap:.62rem;margin-bottom:.62rem}
-.form-group{display:flex;flex-direction:column;gap:.24rem}
-.form-group.full{grid-column:1/-1}
-label{font-size:.67rem;color:var(--text-dim);letter-spacing:.05em;font-family:'JetBrains Mono',monospace}
-input[type=text],input[type=number],select,textarea{
-  background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);
-  font-family:'Noto Serif JP',serif;font-size:.82rem;padding:.42rem .62rem;width:100%;
-  transition:border-color .2s,box-shadow .2s;outline:none}
-input:focus,select:focus,textarea:focus{border-color:var(--civ-a);box-shadow:0 0 0 2px var(--civ-glow)}
-select option{background:#1a1a26}
-textarea{resize:vertical;min-height:52px}
-
-/* ═══ TAG CHIPS ═══ */
-.tags-area{display:flex;flex-wrap:wrap;gap:.3rem;background:var(--bg);
-  border:1px solid var(--border);border-radius:6px;padding:.4rem;min-height:38px;cursor:text;align-items:center}
-.tags-area:focus-within{border-color:var(--civ-a);box-shadow:0 0 0 2px var(--civ-glow)}
-.tag-chip{display:flex;align-items:center;gap:.22rem;
-  background:linear-gradient(135deg,var(--civ-glow),rgba(0,0,0,.08));
-  border:1px solid var(--civ-a);border-radius:20px;
-  padding:.1rem .1rem .1rem .5rem;font-size:.7rem;color:var(--civ-b);
-  font-family:'JetBrains Mono',monospace;white-space:nowrap}
-.tag-del{width:15px;height:15px;display:flex;align-items:center;justify-content:center;
-  background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.25);border-radius:50%;
-  cursor:pointer;color:var(--red);font-size:.58rem;transition:all .15s;flex-shrink:0}
-.tag-del:hover{background:rgba(248,113,113,.3)}
-.tag-input{background:transparent;border:none;color:var(--text);font-size:.76rem;
-  flex:1;min-width:65px;outline:none;padding:0;font-family:'Noto Serif JP',serif}
-
-/* ═══ TAG TEXT INPUT (for search/resonance) ═══ */
-.tag-text-wrap{display:flex;gap:.4rem;align-items:center}
-.tag-text-wrap input{flex:1}
-.tag-suggest{position:relative}
-.tag-suggest-list{position:absolute;top:100%;left:0;right:0;background:#1a1a2e;
-  border:1px solid var(--civ-a);border-radius:6px;z-index:999;display:none;
-  box-shadow:0 4px 16px rgba(0,0,0,.5);overflow:hidden}
-.tag-suggest-list.open{display:block}
-.tag-suggest-item{padding:.38rem .6rem;font-size:.75rem;cursor:pointer;color:var(--text);
-  font-family:'JetBrains Mono',monospace;transition:background .12s}
-.tag-suggest-item:hover{background:var(--civ-glow);color:var(--civ-b)}
-
-/* ═══ TOOLTIP ═══ */
-.has-tip{position:relative}
-.tip-bubble{display:none;position:absolute;bottom:calc(100% + 7px);left:0;
-  background:#1a1a2e;border:1px solid var(--civ-a);border-radius:8px;padding:.48rem .65rem;
-  font-size:.65rem;color:var(--text);line-height:1.6;white-space:normal;width:224px;
-  z-index:9999;pointer-events:none;box-shadow:0 4px 20px rgba(0,0,0,.6)}
-.tip-bubble::after{content:'';position:absolute;top:100%;left:16px;
-  border:6px solid transparent;border-top-color:var(--civ-a)}
-.has-tip:hover .tip-bubble{display:block}
-
-/* ═══ ABILITY GRID ═══ */
-.ability-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(138px,1fr));gap:.38rem}
-.ability-item{background:var(--bg);border:1px solid var(--border);border-radius:8px;
-  padding:.42rem .52rem;cursor:pointer;transition:border-color .15s,background .15s;
-  display:flex;flex-direction:column;gap:.2rem;position:relative}
-.ability-item:hover{border-color:var(--civ-a);background:var(--civ-glow)}
-.ability-item.active{border-color:var(--civ-b);background:var(--civ-glow)}
-.ability-header{display:flex;align-items:center;justify-content:space-between;gap:.28rem}
-.aname{font-size:.72rem;font-weight:700;color:var(--text)}
-.acost{font-size:.59rem;color:var(--gold);font-family:'JetBrains Mono',monospace;white-space:nowrap}
-.ability-extra{display:none;flex-direction:column;gap:.22rem;margin-top:.08rem}
-.ability-item.active .ability-extra{display:flex}
-.ability-extra label{font-size:.6rem}
-.ability-extra input,.ability-extra select,.ability-extra .tag-text-input{font-size:.7rem;padding:.18rem .28rem}
-.ab-warn{font-size:.59rem;color:var(--warn);font-family:'JetBrains Mono',monospace;display:none}
-.ab-warn.show{display:block}
-
-/* ═══ TRIGGERED EFFECTS ═══ */
-.triggered-list{display:flex;flex-direction:column;gap:.6rem}
-.triggered-item{background:var(--bg);border:1px solid var(--border);border-radius:8px;
-  padding:.65rem .65rem .52rem;position:relative}
-.triggered-item.has-warn{border-color:rgba(251,191,36,.45)}
-.ti-grid{display:grid;grid-template-columns:1fr 1fr;gap:.42rem;margin-bottom:.32rem}
-.ti-params{display:grid;grid-template-columns:1fr 1fr;gap:.42rem;margin-top:.38rem}
-.ti-params.hidden,.ti-tag-row.hidden{display:none}
-.ti-tag-row{margin-top:.38rem}
-.ti-preview{font-size:.62rem;color:var(--civ-b);font-family:'JetBrains Mono',monospace;
-  margin-top:.34rem;padding:.26rem .44rem;background:var(--civ-glow);border-radius:4px;line-height:1.5}
-.ti-warn{font-size:.61rem;color:var(--warn);margin-top:.26rem;padding:.22rem .4rem;
-  background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.22);border-radius:4px;display:none}
-.ti-warn.show{display:block}
-.remove-btn{position:absolute;top:.38rem;right:.38rem;background:rgba(248,113,113,.08);
-  border:1px solid rgba(248,113,113,.25);color:var(--red);border-radius:4px;
-  padding:.05rem .32rem;cursor:pointer;font-size:.65rem;transition:background .15s}
-.remove-btn:hover{background:rgba(248,113,113,.2)}
-.add-btn{display:flex;align-items:center;gap:.35rem;background:var(--civ-glow);
-  border:1px dashed var(--civ-a);color:var(--civ-b);border-radius:8px;padding:.5rem .9rem;
-  cursor:pointer;font-size:.76rem;width:100%;justify-content:center;
-  transition:filter .2s;margin-top:.42rem;font-family:'Noto Serif JP',serif}
-.add-btn:hover{filter:brightness(1.35)}
-
-/* ═══ WARN BANNER ═══ */
-.warn-banner{background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.28);
-  border-radius:8px;padding:.45rem .7rem;font-size:.68rem;color:var(--warn);
-  margin-bottom:.7rem;display:none}
-.warn-banner.show{display:block}
-
-/* ═══ CARD PREVIEW ═══ */
-.card-preview{background:linear-gradient(160deg,#1a1228 0%,#0f0f1a 100%);
-  border:2px solid var(--civ-a);border-radius:14px;padding:.95rem;position:relative;
-  overflow:hidden;box-shadow:0 0 28px var(--civ-glow),inset 0 0 38px rgba(0,0,0,.4);
-  min-height:460px;display:flex;flex-direction:column;transition:border-color .4s,box-shadow .4s}
-.card-preview::before{content:'';position:absolute;inset:0;
-  background:repeating-linear-gradient(45deg,rgba(255,255,255,.01) 0,rgba(255,255,255,.01) 1px,transparent 0,transparent 50%);
-  background-size:8px 8px;pointer-events:none}
-.card-preview::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;
-  background:linear-gradient(90deg,transparent,var(--civ-a),var(--civ-b),var(--civ-a),transparent);opacity:.9}
-.cp-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.6rem}
-.cp-name{font-family:'Cinzel Decorative',serif;font-size:clamp(.72rem,2vw,.9rem);
-  color:var(--civ-b);text-shadow:0 0 10px var(--civ-glow);max-width:74%;line-height:1.3;word-break:break-all}
-.cp-cost{background:linear-gradient(135deg,var(--civ-a),var(--civ-b));border-radius:50%;
-  width:34px;height:34px;display:flex;align-items:center;justify-content:center;
-  font-family:'Cinzel Decorative',serif;font-size:.9rem;font-weight:700;color:#fff;flex-shrink:0;
-  box-shadow:0 0 12px var(--civ-glow)}
-.cp-art{background:linear-gradient(135deg,var(--civ-glow),rgba(0,0,0,.15));
-  border:1px solid rgba(255,255,255,.06);border-radius:8px;height:110px;
-  display:flex;align-items:center;justify-content:center;margin-bottom:.6rem;position:relative;overflow:hidden}
-.cp-art-bg{position:absolute;inset:0;
-  background:radial-gradient(ellipse at 30% 50%,var(--civ-glow),transparent 60%),
-             radial-gradient(ellipse at 70% 50%,var(--civ-glow),transparent 60%)}
-.cp-art-icon{font-size:3.2rem;position:relative;z-index:1;filter:drop-shadow(0 0 8px var(--civ-glow))}
-.cp-type-bar{background:var(--civ-glow);border:1px solid var(--civ-a);border-radius:4px;
-  padding:.15rem .52rem;font-size:.63rem;color:var(--civ-b);letter-spacing:.1em;
-  text-align:center;margin-bottom:.48rem;font-family:'JetBrains Mono',monospace}
-.cp-stats{display:flex;gap:.38rem;margin-bottom:.6rem}
-.cp-stat{flex:1;background:rgba(0,0,0,.28);border:1px solid var(--border);border-radius:6px;padding:.32rem;text-align:center}
-.cp-stat .slabel{font-size:.55rem;color:var(--text-dim);font-family:'JetBrains Mono',monospace;letter-spacing:.1em}
-.cp-stat .sval{font-size:1.05rem;font-weight:700;font-family:'Cinzel Decorative',serif}
-.cp-stat.atk .sval{color:var(--red)}.cp-stat.hp .sval{color:var(--green)}.cp-stat.base .sval{color:var(--blue)}
-.cp-text{background:rgba(0,0,0,.18);border:1px solid var(--border);border-radius:6px;
-  padding:.48rem .62rem;font-size:.68rem;color:var(--text);line-height:1.7;
-  flex:1;white-space:pre-line;overflow-y:auto;max-height:185px}
-.cp-text:empty::before{content:'効果テキストが表示されます';color:var(--text-dim);font-style:italic}
-.cp-tags{display:flex;flex-wrap:wrap;gap:.22rem;margin-top:.48rem}
-.cp-tag{background:var(--civ-glow);border:1px solid var(--civ-a);border-radius:20px;
-  padding:.06rem .42rem;font-size:.6rem;color:var(--civ-b);font-family:'JetBrains Mono',monospace}
-
-/* ═══ COST BAR ═══ */
-.cost-bar{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:.8rem .95rem;margin-bottom:.9rem}
-.cost-row{display:flex;justify-content:space-between;align-items:center;font-size:.7rem;
-  padding:.14rem 0;border-bottom:1px solid rgba(255,255,255,.04)}
-.cost-row:last-child{border-bottom:none}
-.cost-row .clabel{color:var(--text-dim);font-family:'JetBrains Mono',monospace}
-.cost-row .cval{font-family:'JetBrains Mono',monospace;font-weight:600}
-.cost-row.total{margin-top:.3rem;padding-top:.45rem;border-top:1px solid var(--border)}
-.cost-row.total .clabel{color:var(--text);font-size:.78rem}
-.cost-row.total .cval{color:var(--gold);font-size:.95rem}
-
-/* ═══ BUTTONS ═══ */
-.btn{padding:.55rem .88rem;border-radius:8px;font-size:.76rem;font-family:'Noto Serif JP',serif;
-  cursor:pointer;border:none;transition:all .2s;display:inline-flex;align-items:center;justify-content:center;gap:.32rem;font-weight:700}
-.btn-primary{background:linear-gradient(135deg,var(--civ-a),var(--civ-b));color:#fff;box-shadow:0 2px 10px var(--civ-glow)}
-.btn-primary:hover{filter:brightness(1.14);transform:translateY(-1px)}
-.btn-secondary{background:rgba(245,197,24,.08);border:1px solid rgba(245,197,24,.26);color:var(--gold)}
-.btn-secondary:hover{background:rgba(245,197,24,.15)}
-.btn-danger{background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.28);color:var(--red)}
-.btn-danger:hover{background:rgba(248,113,113,.2)}
-.btn-success{background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.3);color:var(--green)}
-.btn-success:hover{background:rgba(74,222,128,.2)}
-.btn-full{width:100%;justify-content:center}
-.btn-row{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.6rem}
-
-/* ═══ DECK BUILDER ═══ */
-.deck-page{max-width:1280px;margin:0 auto;padding:1.4rem;position:relative;z-index:1}
-.deck-grid{display:grid;grid-template-columns:1fr 320px;gap:1.4rem;align-items:start}
-@media(max-width:900px){.deck-grid{grid-template-columns:1fr}}
-
-/* card list in deck */
-.deck-card-list{display:flex;flex-direction:column;gap:.5rem}
-.deck-card-row{background:var(--bg);border:1px solid var(--border);border-radius:8px;
-  padding:.55rem .7rem;display:grid;grid-template-columns:1fr auto auto;gap:.5rem;align-items:center}
-.deck-card-row:hover{border-color:var(--civ-a)}
-.dcr-name{font-size:.8rem;font-weight:700;color:var(--text)}
-.dcr-sub{font-size:.63rem;color:var(--text-dim);font-family:'JetBrains Mono',monospace;margin-top:.1rem}
-.dcr-badge{font-size:.65rem;color:var(--civ-b);background:var(--civ-glow);border:1px solid var(--civ-a);
-  border-radius:4px;padding:.08rem .35rem;font-family:'JetBrains Mono',monospace}
-.count-ctrl{display:flex;align-items:center;gap:.35rem}
-.count-btn{width:24px;height:24px;border-radius:50%;background:var(--surface);border:1px solid var(--border);
-  color:var(--text);cursor:pointer;font-size:.8rem;display:flex;align-items:center;justify-content:center;
-  transition:all .15s;flex-shrink:0}
-.count-btn:hover{border-color:var(--civ-a);color:var(--civ-b)}
-.count-num{font-family:'JetBrains Mono',monospace;font-size:.8rem;min-width:18px;text-align:center}
-/* deck stats */
-.deck-stats{display:flex;gap:.55rem;margin-bottom:.9rem;flex-wrap:wrap}
-.deck-stat{flex:1;min-width:70px;background:var(--bg);border:1px solid var(--border);
-  border-radius:8px;padding:.45rem .55rem;text-align:center}
-.deck-stat .ds-label{font-size:.58rem;color:var(--text-dim);font-family:'JetBrains Mono',monospace}
-.deck-stat .ds-val{font-size:1.1rem;font-weight:700;font-family:'Cinzel Decorative',serif;color:var(--civ-b)}
-.deck-stat .ds-val.warn{color:var(--warn)}
-.deck-stat .ds-val.ok{color:var(--green)}
-
-/* JSON preview */
-.json-preview{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:.6rem;
-  font-family:'JetBrains Mono',monospace;font-size:.6rem;color:var(--text-dim);
-  white-space:pre;overflow:auto;max-height:180px;display:none;line-height:1.5}
-.json-preview.visible{display:block}
-
-/* scrollbar */
-::-webkit-scrollbar{width:5px;height:5px}
-::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
-::-webkit-scrollbar-thumb:hover{background:var(--civ-a)}
-
-/* empty state */
-.empty-state{text-align:center;padding:2rem;color:var(--text-dim);font-size:.8rem}
-.empty-state .es-icon{font-size:2.5rem;margin-bottom:.5rem;opacity:.4}
+  :root{
+    --bg:#0d0b12; --s1:#16131f; --s2:#1e1a2b; --s3:#272234;
+    --line:#352e47; --line2:#473d5e;
+    --ink:#ece6f2; --ink2:#a99fbd; --ink3:#766c8a;
+    --ember:#f0531c; --ember2:#ff8a4a; --gold:#e8b04b;
+    --fire:#e0533d; --water:#4a90d9; --wood:#6fa84b; --light:#e8c860; --dark:#9b6dc4;
+    --bad:#e0574f; --ok:#6fb35a; --warn:#e0b24a;
+    --mono:ui-monospace,Menlo,Consolas,monospace;
+    --mincho:"Hiragino Mincho ProN","Yu Mincho",YuMincho,"Noto Serif JP",serif;
+    --sans:"Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:
+      radial-gradient(80% 50% at 50% -8%, #f0531c14 0%, #0d0b1200 55%),
+      radial-gradient(60% 40% at 90% 110%, #8b6cef10 0%, #0d0b1200 60%), var(--bg);
+    color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1240px;margin:0 auto;padding:20px 16px 90px}
+  header{border-bottom:1px solid var(--line);padding-bottom:14px;margin-bottom:18px;display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+  header h1{margin:0;font-family:var(--mincho);font-size:26px;font-weight:700;letter-spacing:.1em;
+    background:linear-gradient(100deg,var(--gold),var(--ember2),var(--ember));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  header .sub{font-size:11px;letter-spacing:.34em;color:var(--ink3);font-family:var(--mono)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
+  .chip{font-size:11px;color:var(--ink2);background:var(--s1);border:1px solid var(--line);border-radius:999px;padding:3px 10px}
+  .cols{display:grid;grid-template-columns:1fr 348px;gap:18px;align-items:start}
+  @media(max-width:860px){.cols{grid-template-columns:1fr}}
+  .panel{background:var(--s1);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .panel+.panel{margin-top:14px}
+  .panel h2{margin:0 0 12px;font-size:11px;letter-spacing:.2em;color:var(--ink3);font-weight:700;text-transform:uppercase}
+  .panel h2 .hint{float:right;font-size:10px;letter-spacing:.02em;color:var(--ink3);text-transform:none;font-weight:400}
+  label.fld{display:block;font-size:11px;color:var(--ink2);margin-bottom:4px;letter-spacing:.03em}
+  .row{display:flex;gap:10px;flex-wrap:wrap}.row>div{flex:1;min-width:88px}
+  input[type=text],input[type=number],select,textarea{width:100%;background:var(--s2);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:8px 10px;font-family:var(--sans);font-size:14px;outline:none}
+  input:focus,select:focus{border-color:var(--ember)}
+  input[type=number]{font-variant-numeric:tabular-nums}
+  input:disabled{opacity:.35}
+  select{appearance:none;cursor:pointer;background-image:linear-gradient(45deg,transparent 50%,var(--ink3) 50%),linear-gradient(135deg,var(--ink3) 50%,transparent 50%);background-position:calc(100% - 15px) 17px,calc(100% - 10px) 17px;background-size:5px 5px;background-repeat:no-repeat;padding-right:26px}
+  .seg{display:flex;gap:6px;flex-wrap:wrap}
+  .seg button{flex:1;min-width:50px;background:var(--s2);border:1px solid var(--line);color:var(--ink2);border-radius:8px;padding:7px 4px;font-size:12.5px;cursor:pointer;font-family:var(--sans)}
+  .seg button.on{color:#160f0a;font-weight:700;border-color:transparent;background:var(--gold)}
+  .civ button[data-c=Fire].on{background:var(--fire);color:#fff}.civ button[data-c=Water].on{background:var(--water);color:#fff}
+  .civ button[data-c=Wood].on{background:var(--wood);color:#fff}.civ button[data-c=Light].on{background:var(--light);color:#160f0a}
+  .civ button[data-c=Dark].on{background:var(--dark);color:#fff}
+  .kwgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:7px}
+  .kw{display:flex;flex-direction:column;align-items:stretch;gap:5px;background:var(--s2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:pointer;user-select:none;font-size:12.5px}
+  .kw.on{border-color:var(--ember);background:#2a1a16}
+  .kw .kwtop{display:flex;align-items:center;gap:7px}
+  .kw input[type=checkbox]{accent-color:var(--ember);margin:0;flex:none}
+  .kw .nm{font-weight:700}
+  .kw .kwdesc{font-size:11px;color:var(--ink3);line-height:1.45}
+  .kw.on .kwdesc{color:var(--ember2)}
+  .kw .kx{width:48px;padding:2px;font-size:12px;text-align:center;margin-left:auto}
+  .kw .kx[hidden]{display:none}
+  .eff{background:var(--s2);border:1px solid var(--line);border-radius:10px;padding:11px;margin-bottom:9px}
+  .eff .eh{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px}
+  .eff .eh b{font-size:11px;color:var(--ink3);letter-spacing:.1em;font-weight:700}
+  .eff .del{background:none;border:none;color:var(--ink3);cursor:pointer;font-size:17px;line-height:1;padding:0 3px}.eff .del:hover{color:var(--bad)}
+  .eg{display:grid;gap:8px;margin-bottom:8px}.eg.c2{grid-template-columns:1fr 1fr}
+  .act{background:var(--s3);border:1px solid var(--line);border-radius:8px;padding:9px;margin-top:7px}
+  .act .ah{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+  .act .ah span{font-size:10.5px;color:var(--ink3);letter-spacing:.08em}
+  .act .ax{background:none;border:none;color:var(--ink3);cursor:pointer;font-size:14px}.act .ax:hover{color:var(--bad)}
+  .addbtn{width:100%;background:none;border:1px dashed var(--line2);color:var(--ink2);border-radius:8px;padding:8px;cursor:pointer;font-family:var(--sans);font-size:12.5px;margin-top:6px}
+  .addbtn:hover{border-color:var(--ember);color:var(--ember2)}
+  .addbtn.sm{padding:6px;font-size:12px}
+  .prev-line{font-size:12px;color:var(--gold);font-family:var(--mono);line-height:1.5;margin-top:4px}
+  .note{font-size:11px;color:var(--ink3);margin:0 0 8px}
+  /* preview card */
+  .stickside{position:sticky;top:16px}
+  .card{position:relative;border-radius:16px;padding:3px;background:linear-gradient(155deg,var(--cv,#666),#15101c 72%);box-shadow:0 14px 36px #0009}
+  .card .in{background:linear-gradient(180deg,#1c1726,#141019);border-radius:13px;padding:13px;min-height:340px;display:flex;flex-direction:column}
+  .card .ct{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+  .card .nm{font-family:var(--mincho);font-size:17px;font-weight:700;line-height:1.25}
+  .card .cost{flex:none;width:36px;height:36px;border-radius:50%;background:var(--cv,#666);color:#160f0a;font-weight:800;font-size:18px;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
+  .card .meta{font-size:11px;color:var(--ink3);letter-spacing:.1em;margin-top:6px}
+  .card .art{flex:1;margin:10px 0;border:1px solid var(--line);border-radius:9px;display:flex;align-items:center;justify-content:center;color:var(--ink3);font-size:11px;letter-spacing:.2em;min-height:64px;background:#0004}
+  .card .kws{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:7px}
+  .card .kws span{font-size:11px;background:var(--cv,#666);color:#160f0a;font-weight:700;border-radius:4px;padding:1px 7px}
+  .card .txt{font-size:11.5px;color:var(--ink2);border-top:1px solid var(--line);padding-top:7px;min-height:30px;white-space:pre-wrap}
+  .card .st{display:flex;justify-content:flex-end;gap:5px;margin-top:8px;font-weight:800;font-size:18px;font-variant-numeric:tabular-nums}
+  .card .atk{color:var(--ember2)}.card .hp{color:var(--water)}
+  .est{margin-top:12px;font-size:12.5px}.est .l{display:flex;justify-content:space-between;padding:3px 0;color:var(--ink2)}.est .l b{color:var(--ink)}
+  .flags{margin-top:8px;display:flex;flex-direction:column;gap:6px}
+  .flag{font-size:11.5px;border-radius:7px;padding:7px 9px;line-height:1.45}
+  .flag.warn{background:#2a2410;border:1px solid #564a1c;color:var(--warn)}
+  .flag.bad{background:#2a1413;border:1px solid #552220;color:#e9938d}
+  .flag.info{background:#141f24;border:1px solid #284450;color:#7fc1d4}
+  .flag.ok{background:#15240f;border:1px solid #2c4a1f;color:#9cc77c}
+  .btns{display:flex;gap:10px;margin-top:14px}
+  .btn{flex:1;border-radius:9px;padding:11px;font-size:14px;font-weight:700;cursor:pointer;font-family:var(--sans);border:1px solid var(--line2);background:var(--s2);color:var(--ink)}
+  .btn.primary{background:linear-gradient(100deg,var(--ember),var(--ember2));color:#1a0f08;border-color:transparent}
+  .btn:hover{filter:brightness(1.08)}
+  .jsonwrap{margin-top:14px}
+  .jsonwrap .jh{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+  .jsonwrap .jh span{font-size:11px;letter-spacing:.16em;color:var(--ink3);text-transform:uppercase;font-weight:700}
+  .jsonwrap .jb{display:flex;gap:6px}
+  .ghost{background:var(--s2);border:1px solid var(--line2);color:var(--ink);border-radius:7px;padding:6px 11px;font-size:12px;cursor:pointer;font-family:var(--sans)}.ghost:hover{border-color:var(--ember);color:var(--ember2)}
+  pre.json{background:#0a0810;border:1px solid var(--line);border-radius:9px;padding:12px;font-family:var(--mono);font-size:11px;color:var(--ink2);max-height:300px;overflow:auto;white-space:pre;margin:0}
 </style>
-</head>
-<body class="civ-None">
 
-<!-- ═══════════════════════════════════════ HEADER ═══ -->
-<header>
-  <h1>✦ Orica Generator ✦ <span class="v-badge">v4.0</span></h1>
-  <p>タグ連動 / デッキ一括エクスポート対応</p>
-</header>
+<div class="wrap">
+  <header>
+    <div><h1>オリカジェネレーター</h1><div class="sub">ORICA BATTLER ／ CARD FORGE</div></div>
+    <div class="chips">
+      <span class="chip">ライフ制 / HP累積</span>
+      <span class="chip">タップ無し・受け身</span>
+      <span class="chip">各効果ターン1</span>
+      <span class="chip">文明＝フレーバー</span>
+    </div>
+  </header>
 
-<!-- ═══ TAB NAV ═══ -->
-<div class="tab-nav">
-  <button class="tab-btn active" onclick="switchTab('card')">🃏 カード作成</button>
-  <button class="tab-btn" onclick="switchTab('deck')" id="deckTabBtn">
-    🗂 デッキ管理 <span class="tab-count" id="deckCount">0</span>
-  </button>
-</div>
-
-<!-- ══════════════════════════════════════════════════
-     PAGE: CARD CREATOR
-══════════════════════════════════════════════════ -->
-<div class="page active" id="page-card">
-<div class="app">
-
-  <!-- LEFT FORM -->
-  <div class="form-col">
-
-    <!-- Basic Info -->
-    <div class="panel">
-      <div class="panel-title">基本情報</div>
-      <div class="form-row">
-        <div class="form-group full">
-          <label>カード名 *</label>
-          <input type="text" id="cardName" placeholder="例: 炎の守護龍" oninput="update()">
+  <div class="cols">
+    <div>
+      <!-- 基本 -->
+      <div class="panel">
+        <h2>基本</h2>
+        <div class="row">
+          <div style="flex:2"><label class="fld">カード名</label><input id="f-name" type="text" placeholder="例: 煉獄の番竜"></div>
+          <div><label class="fld">種類</label>
+            <div class="seg" id="seg-type"><button data-t="Monster" class="on">モンスター</button><button data-t="Spell">スペル</button><button data-t="Object">オブジェクト</button></div>
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <div class="mon" id="atk-wrap"><label class="fld">ATK</label><input id="f-atk" type="number" min="0" value="3"></div>
+          <div class="mon"><label class="fld">HP</label><input id="f-hp" type="number" min="1" value="5"></div>
+          <div><label class="fld">タグ／種族（カンマ区切り）</label><input id="f-tags" type="text" placeholder="例: 竜, 煉獄"></div>
+        </div>
+        <div style="margin-top:10px"><label class="fld">文明（複数可・フレーバー）</label>
+          <div class="seg civ" id="seg-civ">
+            <button data-c="Fire">火</button><button data-c="Water">水</button><button data-c="Wood">自然</button><button data-c="Light">光</button><button data-c="Dark">闇</button>
+          </div>
         </div>
       </div>
-      <div class="form-row">
-        <div class="form-group"><label>ATK（攻撃力）</label><input type="number" id="atkVal" value="3" min="0" max="99" oninput="update()"></div>
-        <div class="form-group"><label>HP（体力）</label><input type="number" id="hpVal" value="5" min="1" max="99" oninput="update()"></div>
+
+      <!-- キーワード -->
+      <div class="panel mon">
+        <h2>キーワード能力（常在）<span class="hint">カタカナ＋説明つき</span></h2>
+        <div class="kwgrid" id="kwgrid"></div>
       </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label>タイプ</label>
-          <select id="cardType" onchange="update()">
-            <option value="Monster">Monster</option>
-            <option value="Spell">Spell</option>
-          </select>
+
+      <!-- 効果 -->
+      <div class="panel">
+        <h2>効果（トリガー × アクション）<span class="hint">対象はアクションで自動的に絞られる</span></h2>
+        <p class="note">同じトリガーにアクションを複数並べると上から順に解決（1個目にコスト、2個目に本体、が書ける）</p>
+        <div id="efflist"></div>
+        <button class="addbtn" id="add-eff">＋ 効果（トリガー）を追加</button>
+      </div>
+
+      <!-- カード条件 -->
+      <div class="panel">
+        <h2>発動条件（カード全体）<span class="hint">割引対象。相手依存ほど割引大</span></h2>
+        <div id="condlist"></div>
+        <button class="addbtn sm" id="add-cond">＋ 条件を追加</button>
+      </div>
+
+      <div class="btns"><button class="btn" id="btn-reset">クリア</button><button class="btn primary" id="btn-dl">JSONをダウンロード</button></div>
+    </div>
+
+    <!-- プレビュー -->
+    <div class="stickside">
+      <div class="panel">
+        <h2>プレビュー</h2>
+        <div class="card" id="card"><div class="in">
+          <div class="ct"><div class="nm" id="c-nm">無名のオリカ</div><div class="cost" id="c-cost">3</div></div>
+          <div class="meta" id="c-meta">火 / モンスター</div>
+          <div class="art">ILLUSTRATION</div>
+          <div class="kws" id="c-kws"></div>
+          <div class="txt" id="c-txt"></div>
+          <div class="st" id="c-st"><span class="atk" id="c-atk">3</span><span style="color:var(--ink3)">/</span><span class="hp" id="c-hp">5</span></div>
+        </div></div>
+        <div class="est">
+          <div class="l"><span>推定コスト（EN）</span><b id="e-cost">—</b></div>
+          <div class="l"><span>査定スコア（CP）</span><b id="e-cp">—</b></div>
+          <div class="flags" id="flags"></div>
         </div>
-        <div class="form-group">
-          <label>文明</label>
-          <select id="civType" onchange="updateCiv()">
-            <option value="None">None（未設定）</option>
-            <option value="Fire">Fire 🔥</option>
-            <option value="Water">Water 💧</option>
-            <option value="Nature">Nature 🌿</option>
-            <option value="Darkness">Darkness 🌑</option>
-            <option value="Light">Light ✨</option>
-          </select>
+        <div class="jsonwrap">
+          <div class="jh"><span>JSON</span><div class="jb"><button class="ghost" id="j-copy">コピー</button></div></div>
+          <pre class="json" id="jsonout">{}</pre>
         </div>
-      </div>
-      <div class="form-group">
-        <label>タグ（Enterで追加）</label>
-        <div class="tags-area" id="tagsArea" onclick="focusTagInput(event)">
-          <input type="text" id="tagInput" class="tag-input" placeholder="ドラゴン、戦士…" onkeydown="handleTagInput(event)">
-        </div>
-        <div class="warn-banner" id="tagWarnBanner"></div>
-      </div>
-    </div>
-
-    <!-- Static Abilities -->
-    <div class="panel">
-      <div class="panel-title">永続効果（常在アビリティ）</div>
-      <p class="subtitle">クリックで有効化 / ホバーで効果テキスト確認</p>
-      <div class="ability-grid" id="abilityGrid"></div>
-    </div>
-
-    <!-- Triggered Effects -->
-    <div class="panel">
-      <div class="panel-title">誘発効果</div>
-      <p class="subtitle">タグを使うアクション（サーチ・タグ付与）はテキスト入力欄が追加表示されます</p>
-      <div class="triggered-list" id="triggeredList"></div>
-      <button class="add-btn" onclick="addTriggered()">＋ 誘発効果を追加</button>
-    </div>
-
-    <!-- Conditions -->
-    <div class="panel">
-      <div class="panel-title">発動条件（Conditions）</div>
-      <p class="subtitle">JSON の conditions フィールドに出力されます</p>
-      <div id="conditionsList"></div>
-      <button class="add-btn" onclick="addCondition()">＋ 条件を追加</button>
-    </div>
-
-    <!-- Flavor -->
-    <div class="panel">
-      <div class="panel-title">フレーバーテキスト（任意）</div>
-      <textarea id="flavorText" placeholder="カードの世界観を表す一文…" oninput="update()" style="height:52px"></textarea>
-    </div>
-
-  </div>
-
-  <!-- RIGHT PREVIEW -->
-  <div class="preview-col">
-
-    <div class="cost-bar">
-      <div class="cost-row"><span class="clabel">BaseCost ⌊(ATK+HP)/4⌋</span><span class="cval" id="baseCostVal">—</span></div>
-      <div class="cost-row"><span class="clabel">永続アビリティ合計</span><span class="cval" id="staticScore">—</span></div>
-      <div class="cost-row"><span class="clabel">誘発効果合計</span><span class="cval" id="triggerScore">—</span></div>
-      <div class="cost-row total"><span class="clabel">EN コスト（1〜10）</span><span class="cval" id="finalCostVal">—</span></div>
-    </div>
-
-    <div class="card-preview">
-      <div class="cp-header">
-        <div class="cp-name" id="previewName">カード名未設定</div>
-        <div class="cp-cost" id="previewCost">?</div>
-      </div>
-      <div class="cp-art"><div class="cp-art-bg"></div><div class="cp-art-icon" id="previewIcon">⚔️</div></div>
-      <div class="cp-type-bar" id="previewType">Monster / None</div>
-      <div class="cp-stats">
-        <div class="cp-stat atk"><div class="slabel">ATK</div><div class="sval" id="previewAtk">3</div></div>
-        <div class="cp-stat hp"><div class="slabel">HP</div><div class="sval" id="previewHp">5</div></div>
-        <div class="cp-stat base"><div class="slabel">BASE</div><div class="sval" id="previewBase">2</div></div>
-      </div>
-      <div class="cp-text" id="previewText"></div>
-      <div class="cp-tags" id="previewTags"></div>
-    </div>
-
-    <div class="btn-row" style="margin-top:.9rem">
-      <button class="btn btn-secondary" onclick="toggleJson()" style="flex:1">📋 JSON確認</button>
-      <button class="btn btn-primary" onclick="exportSingleJson()" style="flex:1">⬇ DL</button>
-    </div>
-    <button class="btn btn-success btn-full" onclick="addToDeck()" style="margin-top:.5rem">＋ デッキに追加</button>
-    <div class="json-preview" id="jsonPreview"></div>
-
-  </div>
-
-</div>
-</div>
-
-<!-- ══════════════════════════════════════════════════
-     PAGE: DECK MANAGER
-══════════════════════════════════════════════════ -->
-<div class="page" id="page-deck">
-<div class="deck-page">
-<div class="deck-grid">
-
-  <!-- Deck Card List -->
-  <div>
-    <div class="panel">
-      <div class="panel-title">デッキリスト</div>
-      <div class="deck-stats">
-        <div class="deck-stat"><div class="ds-label">合計枚数</div><div class="ds-val" id="deckTotal">0</div></div>
-        <div class="deck-stat"><div class="ds-label">種類数</div><div class="ds-val" id="deckTypes">0</div></div>
-        <div class="deck-stat"><div class="ds-label">上限</div><div class="ds-val">40</div></div>
-        <div class="deck-stat"><div class="ds-label">残り</div><div class="ds-val" id="deckRemain">40</div></div>
-      </div>
-      <div id="deckCardList">
-        <div class="empty-state"><div class="es-icon">🃏</div>カード作成タブでカードを作り、<br>「デッキに追加」ボタンを押してください</div>
       </div>
     </div>
   </div>
-
-  <!-- Deck Meta -->
-  <div style="position:sticky;top:1.4rem">
-    <div class="panel">
-      <div class="panel-title">デッキ設定</div>
-      <div style="display:flex;flex-direction:column;gap:.55rem">
-        <div class="form-group">
-          <label>デッキ名</label>
-          <input type="text" id="deckName" value="サンプルデッキ" oninput="updateDeckPreview()">
-        </div>
-        <div class="form-group">
-          <label>プレイヤーID</label>
-          <input type="text" id="playerId" placeholder="player_001" oninput="updateDeckPreview()">
-        </div>
-      </div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-title">エクスポート</div>
-      <p class="subtitle" style="margin-bottom:.8rem">ZIPに以下が含まれます：<br>📁 cards/ → カードJSON×枚数分<br>📄 deck.json → デッキ構成ファイル</p>
-      <button class="btn btn-primary btn-full" onclick="exportDeckZip()">⬇ ZIPをダウンロード</button>
-      <div class="btn-row" style="margin-top:.5rem">
-        <button class="btn btn-secondary" style="flex:1" onclick="toggleDeckJson()">📋 deck.json確認</button>
-        <button class="btn btn-danger" style="flex:1" onclick="clearDeck()">🗑 全クリア</button>
-      </div>
-      <div class="json-preview" id="deckJsonPreview" style="margin-top:.5rem"></div>
-    </div>
-  </div>
-
-</div>
-</div>
 </div>
 
-<!-- ══════════════════════════════════════════════════
-     SCRIPT
-══════════════════════════════════════════════════ -->
 <script>
-/* ─────────────────────────────
-   MASTER DATA
-───────────────────────────── */
-const TAG_NONE = '（タグ未設定）';
+/* ===== マスターデータ（v5構造＋今日の台帳。文明ロックなし＝全部使える） ===== */
+const CIVJP={Fire:'火',Water:'水',Wood:'自然',Light:'光',Dark:'闇'};
 
-// needsTag=true → アビリティ有効化時にタグ自由入力欄を表示
-const STATIC_ABILITIES = [
-  { id:'vanguard',   name:'前衛',        score:1.5, hasX:false, needsTag:false,
-    tip:'相手モンスターはこのモンスターを優先して攻撃しなければならない。',
-    textFn:(x,tag)=>'【前衛】相手モンスターはこのモンスターを優先して攻撃しなければならない。'},
-  { id:'stealth',    name:'隠密',        score:1.5, hasX:false, needsTag:false,
-    tip:'このモンスターは相手の「前衛」を無視して攻撃できる。',
-    textFn:(x,tag)=>'【隠密】このモンスターは相手の「前衛」を無視して攻撃できる。'},
-  { id:'jinso',      name:'呪装',        score:2.0, hasX:false, needsTag:false,
-    tip:'このモンスターは相手のスペルの対象にならない。',
-    textFn:(x,tag)=>'【呪装】このモンスターは相手のスペルの対象にならない。'},
-  { id:'transcend',  name:'超越',        score:4.0, hasX:false, needsTag:false,
-    tip:'このモンスターは相手のスペルおよびモンスター効果の対象にならない。',
-    textFn:(x,tag)=>'【超越】このモンスターは相手のスペルおよびモンスター効果の対象にならない。'},
-  { id:'immovable',  name:'不動',        score:2.0, hasX:false, needsTag:false,
-    tip:'このモンスターは相手の効果によってフィールドを離れない。',
-    textFn:(x,tag)=>'【不動】このモンスターは相手の効果によってフィールドを離れない。'},
-  { id:'pierce',     name:'貫通',        score:3.0, hasX:false, needsTag:false,
-    tip:'戦闘で相手モンスターを破壊した時、相手のシールドを1枚破壊する。',
-    textFn:(x,tag)=>'【貫通】このモンスターが戦闘で相手モンスターを破壊した時、相手のシールドを1枚破壊する。'},
-  { id:'regen',      name:'再生',        score:1.0, hasX:true,  needsTag:false,
-    tip:'(x) 自分ターン開始時、このモンスターのHPを x 回復する。',
-    textFn:(x,tag)=>`【再生 ${x}】自分ターン開始時、このモンスターのHPを ${x} 回復する。`},
-  { id:'guard',      name:'堅守',        score:1.0, hasX:true,  needsTag:false,
-    tip:'(x) このモンスターが受けるあらゆるダメージを x 軽減する。',
-    textFn:(x,tag)=>`【堅守 ${x}】このモンスターが受けるあらゆるダメージを ${x} 軽減する。`},
-  { id:'amplify',    name:'増幅',        score:3.0, hasX:false, needsTag:false,
-    tip:'自分が与えるスペルおよび効果によるダメージをすべて +2 する。',
-    textFn:(x,tag)=>'【増幅】自分が与えるスペルおよび効果によるダメージをすべて +2 する。'},
-  { id:'majesty',    name:'威光',        score:2.0, hasX:false, needsTag:false,
-    tip:'相手モンスターは場に出たターン、攻撃宣言ができない。',
-    textFn:(x,tag)=>'【威光】相手モンスターは場に出たターン、攻撃宣言ができない。'},
-  { id:'jaki',       name:'邪気',        score:2.0, hasX:true,  needsTag:false,
-    tip:'(x) このモンスターが場にいる間、相手モンスターすべての最大HPを x 減少させる。',
-    textFn:(x,tag)=>`【邪気 ${x}】このモンスターが場にいる間、相手モンスターすべての最大HPを ${x} 減少させる。`},
-  // ★ 共鳴: x + タグ自由入力
-  { id:'resonance',  name:'共鳴',        score:0.5, hasX:true,  needsTag:true,
-    tip:'(タグ, x) 場・墓地にある「タグ」を持つカード1枚につき、自身のATK/HPを x 上昇する。',
-    textFn:(x,tag)=>`【共鳴：${tag||TAG_NONE}】場・墓地にある「${tag||TAG_NONE}」を持つカード1枚につき、自身のATK/HPを ${x} 上昇する。`},
-  { id:'randReduce', name:'ランダム軽減',score:2.0, hasX:true,  needsTag:false,
-    tip:'(x) 自身が受けるダメージを 0〜x の範囲でランダムに軽減する。',
-    textFn:(x,tag)=>`【ランダム軽減 ${x}】自身が受けるダメージを 0〜${x} の範囲でランダムに軽減する。`},
-  { id:'chainLogic', name:'連鎖の理',    score:4.0, hasX:false, needsTag:false,
-    tip:'自分の誘発効果が発動するたび、自身のATKを +1 する。',
-    textFn:(x,tag)=>'【連鎖の理】自分の誘発効果が発動するたび、自身のATKを +1 する。'},
+// トリガー（スコープはtrigger名に畳む）。types: which card types can use it
+const TRIGGERS=[
+  {v:'OnSummon',         jp:'このカードが場に出た時',           types:['Monster','Object']},
+  {v:'OnAllySummon',     jp:'自分の他のモンスターが場に出た時', types:['Monster','Object']},
+  {v:'OnEnemySummon',    jp:'相手モンスターが場に出た時',       types:['Monster','Object']},
+  {v:'OnDeath',          jp:'このカードが破壊された時',         types:['Monster','Object']},
+  {v:'OnAllyDeath',      jp:'自分の他のモンスターが破壊された時',types:['Monster','Object']},
+  {v:'OnEnemyDeath',     jp:'相手モンスターが破壊された時',     types:['Monster','Object']},
+  {v:'OnAttackDeclare',  jp:'このカードが攻撃する時',           types:['Monster']},
+  {v:'OnDamaged',        jp:'このカードがダメージを受けた時',   types:['Monster','Object']},
+  {v:'OnSelfPlayerDamaged',jp:'自分がダメージを受けた時',       types:['Monster','Object']},
+  {v:'OnDraw',           jp:'自分がドローした時',               types:['Monster','Object']},
+  {v:'OnEnemyDraw',      jp:'相手がドローした時',               types:['Monster','Object']},
+  {v:'OnCast',           jp:'自分がスペルを使った時',           types:['Monster','Object']},
+  {v:'OnEnemyCast',      jp:'相手がスペルを使った時',           types:['Monster','Object']},
+  {v:'OnTurnStart',      jp:'自分のターン開始時',               types:['Monster','Object']},
+  {v:'OnTurnEnd',        jp:'自分のターン終了時',               types:['Monster','Object']},
+  {v:'OnEnemyTurnEnd',   jp:'相手のターン終了時',               types:['Monster','Object']},
+  {v:'OnCastThis',       jp:'このスペルを使った時',             types:['Spell']},
+];
+// トリガー係数（確実性。出た=確実→重い、相手依存=軽い、毎ターン=放置で雪だるま）
+const TRIG_MULT={OnSummon:1.1,OnCastThis:1.1,OnAllySummon:1,OnEnemySummon:.8,OnDeath:.9,OnAllyDeath:.85,OnEnemyDeath:.8,
+  OnAttackDeclare:.85,OnDamaged:.85,OnSelfPlayerDamaged:.9,OnDraw:.9,OnEnemyDraw:.7,OnCast:.85,OnEnemyCast:.75,
+  OnTurnStart:1.5,OnTurnEnd:1.4,OnEnemyTurnEnd:1.2};
+
+// アクション（動詞）。type=エンジン名 / needs / 対象候補 / score(v,c)
+const ACTIONS=[
+  {v:'Draw',         jp:'ドローする',                    val:1,cnt:0,tgts:[],            sc:(x)=>1.2*x},
+  {v:'Damage',       jp:'ダメージを与える',              val:1,cnt:0,tgts:['Enemy','EnemyAll','EnemyRandom','Context','Player'], sc:(x)=>.6*x},
+  {v:'Destroy',      jp:'破壊する',                      val:0,cnt:1,tgts:['Enemy','Context'], sc:(x,c)=>3*c},
+  {v:'BuffAtk',      jp:'ATKをバフする',                 val:1,cnt:0,tgts:['Self','Ally','AllyAll'], sc:(x)=>.4*x},
+  {v:'BuffHp',       jp:'HPを回復・強化する',            val:1,cnt:0,tgts:['Self','Ally','AllyAll'], sc:(x)=>.3*x},
+  {v:'DebuffAtk',    jp:'ATKをデバフする',               val:1,cnt:0,tgts:['Enemy','EnemyAll'], sc:(x)=>.5*x},
+  {v:'DebuffHp',     jp:'HPをデバフする',                val:1,cnt:0,tgts:['Enemy','EnemyAll'], sc:(x)=>.6*x},
+  {v:'Bounce',       jp:'バウンスする（手札に戻す）',    val:0,cnt:1,tgts:['Enemy','Context'], sc:(x,c)=>2*c},
+  {v:'TakeControl',  jp:'コントロールを奪う',            val:0,cnt:1,tgts:['Enemy'], sc:(x,c)=>4*c},
+  {v:'Heal',         jp:'ライフを回復する',              val:1,cnt:0,tgts:['SelfPlayer'], sc:(x)=>.4*x},
+  {v:'LifeDamage',   jp:'ライフにダメージ（相手本体）',  val:1,cnt:0,tgts:['Player'], sc:(x)=>.8*x},
+  {v:'Revive',       jp:'蘇生する（コストxまで）',       val:1,cnt:0,tgts:['Grave'], sc:(x)=>2.5},
+  {v:'AddToHand',    jp:'墓地から手札に加える',          val:0,cnt:1,tgts:['Grave'], sc:(x,c)=>1.2*c},
+  {v:'MillToDeck',   jp:'墓地をデッキに戻す',            val:1,cnt:0,tgts:['GraveBoth'], sc:(x)=>.5*x},
+  {v:'Token',        jp:'トークンを生み出す',            val:1,cnt:1,tgts:['SelfField'], sc:(x,c)=>.8*x*c},
+  {v:'DiscardHand',  jp:'手札を破壊する（ランダム）',    val:1,cnt:0,tgts:['EnemyHand'], sc:(x)=>1*x},
+  {v:'RaiseCostMon', jp:'相手クリーチャーのコストを重く',val:1,cnt:0,tgts:['EnemyMeta'], sc:(x)=>.9*x},
+  {v:'RaiseCostSpell',jp:'相手スペルのコストを重く',     val:1,cnt:0,tgts:['EnemyMeta'], sc:(x)=>.9*x},
+  {v:'Poison',       jp:'毒にする',                      val:1,cnt:0,tgts:['Enemy'], sc:(x)=>.7*x},
+  {v:'Paralyze',     jp:'マヒにする',                    val:0,cnt:1,tgts:['Enemy'], sc:(x,c)=>1.2*c},
+  {v:'Freeze',       jp:'凍結にする',                    val:0,cnt:1,tgts:['Enemy'], sc:(x,c)=>1*c},
+  {v:'Burn',         jp:'やけどにする',                  val:0,cnt:1,tgts:['Enemy'], sc:(x,c)=>1*c},
+  {v:'Silence',      jp:'サイレンス（効果・KW無効）',    val:0,cnt:1,tgts:['Enemy'], sc:(x,c)=>1.5*c},
+  {v:'GainEN',       jp:'このターンのENを増やす',        val:1,cnt:0,tgts:[],        sc:(x)=>.7*x},
+  // コスト系（割引＝マイナススコア）。効果の先頭に置く想定
+  {v:'PayLife',      jp:'コスト:自分のライフを払う',     val:1,cnt:0,tgts:[],        sc:(x)=>-.5*x,cost:true},
+  {v:'SelfDestroy',  jp:'コスト:このカードを破壊',       val:0,cnt:0,tgts:[],        sc:()=>-1.5,cost:true},
+  {v:'DiscardOwn',   jp:'コスト:自分の手札を捨てる',     val:1,cnt:0,tgts:[],        sc:(x)=>-.6*x,cost:true},
+  {v:'Sacrifice',    jp:'コスト:自分の他モンスターを生け贄',val:0,cnt:1,tgts:[],     sc:(x,c)=>-1.2*c,cost:true},
+];
+const TGT_JP={Enemy:'相手モンスター1体',EnemyAll:'相手モンスター全体',EnemyRandom:'相手モンスターランダム1体',
+  Self:'このモンスター自身',Ally:'自分の他のモンスター1体',AllyAll:'自分のモンスター全体',
+  Context:'誘発元',Player:'相手プレイヤー',SelfPlayer:'自分プレイヤー',Grave:'自分の墓地',GraveBoth:'双方の墓地',
+  SelfField:'自分の場',EnemyHand:'相手の手札',EnemyMeta:'相手'};
+// 体数を取る動詞用の「プール名（数を含まない）」ラベル
+const OWNER_JP={Enemy:'相手モンスター',EnemyRandom:'相手モンスター（ランダム）',Ally:'自分の他のモンスター',
+  Context:'誘発元',Grave:'自分の墓地',GraveBoth:'双方の墓地',SelfField:'自分の場',EnemyHand:'相手の手札'};
+// 表示用ラベル：体数動詞ならプール名、それ以外は通常ラベル
+function targetDisp(av,t){ if(!t) return ''; return (A(av).cnt && OWNER_JP[t]) ? OWNER_JP[t] : TGT_JP[t]; }
+const TGT_MULT={EnemyAll:1.8,AllyAll:1.7,EnemyRandom:.8,Context:.85};
+
+// キーワード（カタカナ＋説明）
+// atk:true = 攻撃に関わる＝攻撃を持たないオブジェクトには付かない
+const KEYWORDS=[
+  {v:'SpeedAttacker',jp:'スピードアタッカー',desc:'場に出たターンに攻撃できる',x:false,sc:2,  atk:true},
+  {v:'Blocker',      jp:'ブロッカー',        desc:'相手は優先してこのモンスターを攻撃しなければならない',x:false,sc:1.5,atk:true},
+  {v:'Stealth',      jp:'ステルス',          desc:'相手のブロッカーを無視してプレイヤーを攻撃できる',x:false,sc:1.5,atk:true},
+  {v:'Untouchable',  jp:'アンタッチャブル',  desc:'このモンスターは攻撃の対象にならない',x:false,sc:3,  atk:true},
+  {v:'SpellGuard',   jp:'スペルガード',      desc:'このカードはスペルの効果を受けない',x:false,sc:2},
+  {v:'Barrier',      jp:'バリア',            desc:'最初の1回のダメージを無効にする',x:false,sc:2.5},
+  {v:'Break',        jp:'ブレイク',          desc:'相手モンスターのHPを超えた分、貫通してプレイヤーにダメージ',x:false,sc:3,atk:true},
+  {v:'Deadly',       jp:'デッドリー',        desc:'ダメージを与えた相手モンスターを破壊する',x:false,sc:3,atk:true},
+  {v:'Regen',        jp:'リジェネ',          desc:'自分のターン開始時、このカードのHPをx回復する',x:true,sc:.8},
+  {v:'Aura',         jp:'オーラ',            desc:'場にいる限り、自分のモンスター全体のATKをx上げる',x:true,sc:1.2},
 ];
 
-const TRIGGERS = [
-  { id:'summon',   name:'登場時',   detail:'このモンスターが場に出た時、' },
-  { id:'attack',   name:'攻撃時',   detail:'このモンスターが攻撃を宣言した時、' },
-  { id:'destroy',  name:'破壊時',   detail:'このモンスターが破壊された時、' },
-  { id:'damaged',  name:'被ダメ時', detail:'このモンスターがダメージを受けた時、' },
-  { id:'targeted', name:'被指定時', detail:'このモンスターが相手の効果の対象になった時、' },
-  { id:'kill',     name:'敵撃破時', detail:'このモンスターが相手モンスターを破壊した時、' },
-  { id:'ally',     name:'味方反応', detail:'他の味方モンスターが場に出た時、' },
-  { id:'enemy',    name:'相手反応', detail:'相手がスペルを使用、またはモンスターを召喚した時、' },
-  { id:'system',   name:'システム', detail:'自分がカードをドローした時、またはENを回復した時、' },
-  { id:'phase',    name:'節目',     detail:'各プレイヤーのターン開始時、または終了時、' },
+// 発動条件（割引）。kind: enemy(踏めない=割引大) / hold(維持型=割引中) / inst(瞬間=割引小)
+const CONDS=[
+  {v:'SelfHpBelow',     jp:'自分のライフがx以下',          kind:'inst', x:true, disc:.6},
+  {v:'HoldHand',        jp:'手札がx枚以下を保つ',          kind:'hold', x:true, disc:1.0},
+  {v:'HoldFieldFew',    jp:'自分の場がx体以下',            kind:'hold', x:true, disc:.8},
+  {v:'DeckBelow',       jp:'デッキがx枚以下',              kind:'hold', x:true, disc:1.2},
+  {v:'PartnerOnField',  jp:'自分のパートナーが場にいる',   kind:'hold', x:false,disc:1.4},
+  {v:'GraveAbove',      jp:'自分の墓地がx枚以上',          kind:'hold', x:true, disc:.8},
+  {v:'TurnAfter',       jp:'ターンx目以降',                kind:'hold', x:true, disc:.9},
+  {v:'ThisHpFull',      jp:'このカードのHPが満タン',       kind:'inst', x:false,disc:.4},
+  {v:'EnemyFieldAbove', jp:'相手の場がx体以上',            kind:'enemy',x:true, disc:1.4},
+  {v:'EnemyCivAbove',   jp:'相手の場にx属性がx体以上',     kind:'enemy',x:true, disc:1.3},
+  {v:'EnemyPartner',    jp:'相手のパートナーが場にいる',   kind:'enemy',x:false,disc:1.5},
+  {v:'EnemyGraveAbove', jp:'相手の墓地がx枚以上',          kind:'enemy',x:true, disc:1.2},
+  {v:'EnemyHpAbove',    jp:'相手のライフが自分より多い',   kind:'enemy',x:false,disc:1.3},
 ];
 
-// ★ needsTag=true → 誘発効果にタグ自由入力欄を表示
-const ACTIONS = [
-  { id:'shieldBreak', name:'シールドブレイクx',        score:3.0, params:['x'], needsTag:false, textFn:(x,y,t)=>`相手のシールドを${x}枚破壊する`},
-  { id:'shieldAdd',   name:'シールド追加x',             score:2.0, params:['x'], needsTag:false, textFn:(x,y,t)=>`自分のシールドを${x}枚追加する`},
-  { id:'damage',      name:'ダメージx',                 score:0.3, params:['x'], needsTag:false, textFn:(x,y,t)=>`対象に${x}ダメージを与える`},
-  { id:'randDamage',  name:'ランダム割り振りダメージx', score:0.5, params:['x'], needsTag:false, textFn:(x,y,t)=>`相手モンスター全体に合計${x}ダメージをランダムに割り振って与える`},
-  { id:'destroyAct',  name:'破壊',                      score:5.0, params:[],    needsTag:false, textFn:(x,y,t)=>`対象のモンスターを破壊する`},
-  { id:'buff',        name:'バフx',                     score:0.5, params:['x'], needsTag:false, textFn:(x,y,t)=>`対象のATK/HPを${x}上昇させる`},
-  { id:'reattack',    name:'再攻撃',                    score:3.0, params:[],    needsTag:false, textFn:(x,y,t)=>`このモンスターはもう一度攻撃できる`},
-  { id:'draw',        name:'ドローx',                   score:0.5, params:['x'], needsTag:false, textFn:(x,y,t)=>`カードを${x}枚引く`},
-  { id:'enBoost',     name:'EN加速x',                   score:1.0, params:['x'], needsTag:false, textFn:(x,y,t)=>`ENを${x}追加する`},
-  { id:'enReduce',    name:'EN減少x',                   score:2.0, params:['x'], needsTag:false, textFn:(x,y,t)=>`相手のENを${x}減少させる`},
-  { id:'deploy',      name:'展開',                      score:0.8, params:['x','y'], needsTag:false, textFn:(x,y,t)=>`手札からコスト${x}以下のモンスターを${y}体展開する`},
-  { id:'recover',     name:'回収x',                     score:1.0, params:['x'], needsTag:false, textFn:(x,y,t)=>`墓地からカードを${x}枚手札に加える`},
-  { id:'bounce',      name:'バウンス',                  score:2.0, params:[],    needsTag:false, textFn:(x,y,t)=>`対象のモンスターを手札に戻す`},
-  { id:'disable',     name:'行動不能x',                 score:0.5, params:['x'], needsTag:false, textFn:(x,y,t)=>`対象を${x}ターン行動不能にする`},
-  // ★ タグ自由入力
-  { id:'search',      name:'サーチ [タグ]',             score:2.0, params:[],    needsTag:true,  textFn:(x,y,t)=>`デッキから「${t||TAG_NONE}」を持つカードを1枚手札に加える`},
-  { id:'tagGrant',    name:'タグ付与 [タグ]',           score:1.0, params:[],    needsTag:true,  textFn:(x,y,t)=>`対象の味方1体に「${t||TAG_NONE}」を付与する`},
-];
+/* ===== 状態 ===== */
+const A=v=>ACTIONS.find(a=>a.v===v), T=v=>TRIGGERS.find(t=>t.v===v), K=v=>KEYWORDS.find(k=>k.v===v), C=v=>CONDS.find(c=>c.v===v);
+function uuid(){return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return (c==='x'?r:(r&0x3|0x8)).toString(16)});}
+let card={id:uuid(),name:'',type:'Monster',atk:3,hp:5,civs:[],tags:[],keywords:[],effects:[],conditions:[]};
+const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s);
 
-const COND_TYPES = [
-  { id:'tagCount',  name:'タグ数条件', needsTag:true,  template:(tag,n)=>`「${tag||TAG_NONE}」を持つモンスターが場に${n}体以上いる場合`},
-  { id:'hpBelow',   name:'HP条件',    needsTag:false, template:(tag,n)=>`自身のHPが${n}以下の場合`},
-  { id:'costBelow', name:'コスト条件',needsTag:false, template:(tag,n)=>`自分のEN残量が${n}以下の場合`},
-];
-
-/* ─────────────────────────────
-   STATE
-───────────────────────────── */
-let tags = [];
-let triggeredEffects = [];
-let conditions = [];
-let triggerId = 0;
-let condId = 0;
-
-// deck: [{cardJson, count}]
-let deckCards = [];
-
-const civIcons = {None:'⚔️',Fire:'🔥',Water:'💧',Nature:'🌿',Darkness:'🌑',Light:'✨'};
-
-/* ─────────────────────────────
-   TAB
-───────────────────────────── */
-function switchTab(t) {
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
-  document.getElementById(`page-${t}`).classList.add('active');
-  event.target.closest('.tab-btn').classList.add('active');
-  if (t==='deck') renderDeck();
+/* ===== キーワードUI ===== */
+function kwDescText(k,val){ return k.x ? k.desc.replace('x', val||2) : k.desc; }
+function buildKw(){
+  const g=$('#kwgrid');g.innerHTML='';
+  KEYWORDS.filter(k=>card.type!=='Object'||!k.atk).forEach(k=>{
+    const has=card.keywords.find(x=>x.v===k.v);
+    const val=(has&&has.value)||2;
+    const el=document.createElement('label');el.className='kw'+(has?' on':'');el.dataset.v=k.v;
+    el.innerHTML=`<div class="kwtop"><input type="checkbox" ${has?'checked':''}><span class="nm">${k.jp}</span>`+
+      (k.x?`<input class="kx" type="number" min="1" value="${val}" ${has?'':'hidden'}>`:'')+`</div>`+
+      `<div class="kwdesc">${kwDescText(k,val)}</div>`;
+    const cb=el.querySelector('input[type=checkbox]'),kx=el.querySelector('.kx'),dd=el.querySelector('.kwdesc');
+    cb.addEventListener('change',()=>{el.classList.toggle('on',cb.checked);if(kx)kx.hidden=!cb.checked;syncKw();});
+    if(kx)kx.addEventListener('input',()=>{dd.textContent=kwDescText(k,+kx.value||1);syncKw();});
+    g.appendChild(el);
+  });
+}
+function syncKw(){
+  card.keywords=[];
+  $$('.kw').forEach(el=>{const cb=el.querySelector('input[type=checkbox]');if(!cb.checked)return;
+    const v=el.dataset.v,o={v};if(K(v).x)o.value=+el.querySelector('.kx').value||1;card.keywords.push(o);});
+  render();
 }
 
-/* ─────────────────────────────
-   CIV
-───────────────────────────── */
-function updateCiv() {
-  document.body.className = `civ-${document.getElementById('civType').value}`;
-  update();
+/* ===== 効果UI ===== */
+function validTrigs(){return TRIGGERS.filter(t=>t.types.includes(card.type));}
+function defaultTrig(){return validTrigs()[0].v;}
+$('#add-eff').addEventListener('click',()=>{
+  card.effects.push({trigger:defaultTrig(),actions:[blankAct(defaultTrig())]});renderEff();render();});
+function blankAct(){return {v:'Damage',target:'Enemy',value:2,count:1};}
+function actTargets(av,trig){
+  const a=A(av);let t=[...a.tgts];
+  // 誘発元は、役者を出すトリガーのみ
+  const hasCtx=['OnAttackDeclare','OnDamaged','OnEnemyDeath','OnAllyDeath','OnEnemySummon','OnAllySummon'].includes(trig);
+  if(!hasCtx) t=t.filter(x=>x!=='Context');
+  return t;
+}
+function fixAct(ef,act){
+  const tg=actTargets(act.v,ef.trigger);
+  if(tg.length&&!tg.includes(act.target))act.target=tg[0];
+  if(!tg.length)act.target=null;
+}
+function renderEff(){
+  const box=$('#efflist');box.innerHTML='';
+  card.effects.forEach((ef,i)=>{
+    const trigs=validTrigs();
+    const el=document.createElement('div');el.className='eff';
+    el.innerHTML=`<div class="eh"><b>効果 ${i+1}</b><button class="del">×</button></div>
+      <div class="eg"><div><label class="fld">トリガー（いつ）</label><select class="e-trig">
+        ${trigs.map(t=>`<option value="${t.v}" ${t.v===ef.trigger?'selected':''}>${t.jp}</option>`).join('')}</select></div></div>
+      <div class="acts"></div>
+      <button class="addbtn sm add-act">＋ アクションを追加</button>
+      <div class="prev-line"></div>`;
+    el.querySelector('.del').addEventListener('click',()=>{card.effects.splice(i,1);renderEff();render();});
+    el.querySelector('.e-trig').addEventListener('change',e=>{ef.trigger=e.target.value;ef.actions.forEach(a=>fixAct(ef,a));renderEff();render();});
+    const ab=el.querySelector('.acts');
+    ef.actions.forEach((act,j)=>ab.appendChild(actRow(ef,act,j)));
+    el.querySelector('.add-act').addEventListener('click',()=>{const a=blankAct();fixAct(ef,a);ef.actions.push(a);renderEff();render();});
+    el.querySelector('.prev-line').textContent=ef.actions.map(a=>actText(ef,a)).join(' → ');
+    box.appendChild(el);
+  });
+}
+function actRow(ef,act,j){
+  const a=A(act.v),tg=actTargets(act.v,ef.trigger);
+  const showCnt=a.cnt && act.target!=='Context';   // 誘発元は単体固定＝体数なし
+  const showVal=a.val;
+  const el=document.createElement('div');el.className='act';
+  let numCol='';
+  if(showVal&&showCnt) numCol=`<div style="display:flex;gap:6px"><div style="flex:1"><label class="fld">値</label><input class="a-val" type="number" value="${act.value??1}"></div><div style="flex:1"><label class="fld">体数</label><input class="a-cnt" type="number" min="1" value="${act.count||1}"></div></div>`;
+  else if(showCnt) numCol=`<label class="fld">体数/枚数</label><input class="a-cnt" type="number" min="1" value="${act.count||1}">`;
+  else if(showVal) numCol=`<label class="fld">値</label><input class="a-val" type="number" value="${act.value??1}">`;
+  else numCol=`<label class="fld">—</label><input type="number" disabled value="-">`;
+  el.innerHTML=`<div class="ah"><span>アクション ${j+1}</span><button class="ax">×</button></div>
+    <div class="eg c2">
+      <div><label class="fld">何をする</label><select class="a-v">
+        ${ACTIONS.map(x=>`<option value="${x.v}" ${x.v===act.v?'selected':''}>${x.jp}</option>`).join('')}</select></div>
+      <div>${numCol}</div>
+    </div>
+    ${tg.length?`<div class="eg"><div><label class="fld">対象</label><select class="a-tgt">
+      ${tg.map(x=>`<option value="${x}" ${x===act.target?'selected':''}>${targetDisp(act.v,x)}</option>`).join('')}</select></div></div>`:''}`;
+  el.querySelector('.ax').addEventListener('click',()=>{ef.actions.splice(j,1);if(!ef.actions.length)ef.actions.push(blankAct());renderEff();render();});
+  el.querySelector('.a-v').addEventListener('change',e=>{act.v=e.target.value;fixAct(ef,act);renderEff();render();});
+  const cv=el.querySelector('.a-val');if(cv)cv.addEventListener('input',e=>{act.value=+e.target.value||0;render();});
+  const cc=el.querySelector('.a-cnt');if(cc)cc.addEventListener('input',e=>{act.count=+e.target.value||1;render();});
+  const ct=el.querySelector('.a-tgt');if(ct)ct.addEventListener('change',e=>{act.target=e.target.value;renderEff();render();});
+  return el;
 }
 
-/* ─────────────────────────────
-   TAGS
-───────────────────────────── */
-function focusTagInput(e) {
-  if (!e.target.classList.contains('tags-area')) return;
-  document.getElementById('tagInput').focus();
+/* ===== 条件UI ===== */
+$('#add-cond').addEventListener('click',()=>{card.conditions.push({v:CONDS[0].v,value:3});renderCond();render();});
+function renderCond(){
+  const box=$('#condlist');box.innerHTML='';
+  card.conditions.forEach((cd,i)=>{
+    const c=C(cd.v);
+    const el=document.createElement('div');el.className='act';
+    el.innerHTML=`<div class="ah"><span>条件 ${i+1}（${c.kind==='enemy'?'相手依存・割引大':c.kind==='hold'?'維持型・割引中':'瞬間型・割引小'}）</span><button class="ax">×</button></div>
+      <div class="eg ${c.x?'c2':''}"><div><select class="c-v">
+        ${CONDS.map(x=>`<option value="${x.v}" ${x.v===cd.v?'selected':''}>${x.jp}</option>`).join('')}</select></div>
+        ${c.x?`<div><input class="c-x" type="number" min="1" value="${cd.value||1}"></div>`:''}</div>`;
+    el.querySelector('.ax').addEventListener('click',()=>{card.conditions.splice(i,1);renderCond();render();});
+    el.querySelector('.c-v').addEventListener('change',e=>{cd.v=e.target.value;renderCond();render();});
+    const cx=el.querySelector('.c-x');if(cx)cx.addEventListener('input',e=>{cd.value=+e.target.value||1;render();});
+    box.appendChild(el);
+  });
 }
-function handleTagInput(e) {
-  if (e.key==='Enter'||e.key===',') {
-    e.preventDefault();
-    const val = e.target.value.trim().replace(/,/g,'');
-    if (val && !tags.includes(val)) { tags.push(val); renderTags(); update(); }
-    e.target.value = '';
+
+/* ===== テキスト整形 ===== */
+function actText(ef,a){
+  const def=A(a.v);
+  const t=a.target?TGT_JP[a.target]:'';            // 通常ラベル（1体/全体つき）
+  const isCtx=a.target==='Context';
+  const own=a.target?(OWNER_JP[a.target]||TGT_JP[a.target]):''; // プール名（数なし）
+  const x=def.val?(a.value??0):'';
+  const c=def.cnt?(a.count||1):1;
+  // 体数動詞の対象句：誘発元なら単体、それ以外は「プール名をc体」
+  const nC=isCtx?`${own}を`:`${own}を${c}体`;
+  let s;
+  switch(a.v){
+    case 'Draw':s=`${x}枚ドロー`;break;
+    case 'Damage':s=`${t}に${x}ダメージ`;break;
+    case 'Destroy':s=`${nC}破壊`;break;
+    case 'BuffAtk':s=`${t}のATKを+${x}`;break;
+    case 'BuffHp':s=`${t}のHPを+${x}`;break;
+    case 'DebuffAtk':s=`${t}のATKを−${x}`;break;
+    case 'DebuffHp':s=`${t}のHPを−${x}`;break;
+    case 'Bounce':s=`${nC}手札に戻す`;break;
+    case 'TakeControl':s=isCtx?`${own}のコントロールを奪う`:`${own}を${c}体奪い、自分の場に出す`;break;
+    case 'Heal':s=`自分のライフを${x}回復`;break;
+    case 'LifeDamage':s=`相手プレイヤーに${x}ダメージ`;break;
+    case 'Revive':s=`自分の墓地からコスト${x}以下を1体蘇生`;break;
+    case 'AddToHand':s=`自分の墓地から${c}枚を手札に加える`;break;
+    case 'MillToDeck':s=`双方の墓地から計${x}枚をデッキに戻す`;break;
+    case 'Token':s=`ATK${x}/HP${x}のトークンを${c}体生成`;break;
+    case 'DiscardHand':s=`相手の手札を${x}枚ランダムに破壊`;break;
+    case 'RaiseCostMon':s=`相手クリーチャーのコストを+${x}`;break;
+    case 'RaiseCostSpell':s=`相手スペルのコストを+${x}`;break;
+    case 'Poison':s=`${t}を毒(${x})にする`;break;
+    case 'Paralyze':s=`${t}をマヒにする`;break;
+    case 'Freeze':s=`${t}を凍結にする`;break;
+    case 'Burn':s=`${t}をやけどにする`;break;
+    case 'Silence':s=`${t}の効果とキーワードを無効にする`;break;
+    case 'GainEN':s=`このターンのENを+${x}`;break;
+    case 'PayLife':s=`[コスト]自分のライフを${x}払う`;break;
+    case 'SelfDestroy':s=`[コスト]このカードを破壊する`;break;
+    case 'DiscardOwn':s=`[コスト]自分の手札を${x}枚捨てる`;break;
+    case 'Sacrifice':s=`[コスト]自分の他のモンスターを${c}体生け贄にする`;break;
+    default:s=def.jp;
   }
+  return s;
 }
-function removeTag(t) {
-  tags = tags.filter(x=>x!==t);
-  renderTags();
-  update();
+function fullText(){
+  let lines=[];
+  card.keywords.forEach(k=>{const d=K(k.v);lines.push(`【${d.jp}${d.x?' '+k.value:''}】${d.desc.replace('x',k.value||'')}`);});
+  card.effects.forEach(ef=>{const tj=T(ef.trigger).jp;lines.push(`${tj}：`+ef.actions.map(a=>actText(ef,a)).join(' → '));});
+  if(card.conditions.length)lines.push('（条件：'+card.conditions.map(cd=>{const c=C(cd.v);return c.jp.replace('x',cd.value||'');}).join(' / ')+'）');
+  return lines.join('\n');
 }
-function renderTags() {
-  const area=document.getElementById('tagsArea');
-  const input=document.getElementById('tagInput');
-  area.innerHTML='';
-  tags.forEach(t=>{
-    const chip=document.createElement('span');
-    chip.className='tag-chip';
-    chip.innerHTML=`${t}<span class="tag-del" onclick="removeTag('${t.replace(/'/g,"\\'")}')">✕</span>`;
-    area.appendChild(chip);
+
+/* ===== 査定（カタログ式・足し算中心） =====
+   EFFECT_SCALE＝効果/キーワード/条件の重みを一括で上下させる調整ノブ。
+   下げるほど効果が安くなる（ステータスは据え置き）。バランス調整はここ1箇所でOK。 */
+const EFFECT_SCALE=0.6;
+function score(){
+  let stat=0;
+  if(card.type!=='Spell') stat+=(card.atk+card.hp)/4;
+  if(card.type==='Object') stat+=card.hp/8; // 攻撃しない分の常在価値の下駄
+  let abil=0;
+  card.keywords.forEach(k=>{const d=K(k.v);abil+=d.x?d.sc*(k.value||1):d.sc;});
+  card.effects.forEach(ef=>{
+    const tm=TRIG_MULT[ef.trigger]||1;
+    ef.actions.forEach(a=>{const def=A(a.v);let v=def.sc(def.val?a.value||0:0,def.cnt?a.count||1:1);
+      v*=(TGT_MULT[a.target]||1);abil+=v*(def.cost?1:tm);});
   });
-  area.appendChild(input);
+  card.conditions.forEach(cd=>{const c=C(cd.v);let d=c.disc;if(c.x)d*=Math.min(2,(cd.value||1)/3+.5);abil-=d;});
+  return stat + abil*EFFECT_SCALE;
 }
+function finalCost(){return Math.max(1,Math.min(10,Math.round(score())));}
 
-/* ─────────────────────────────
-   TAG TEXT INPUT HELPER
-   サーチ・共鳴などのタグは自由入力テキストボックス
-───────────────────────────── */
-function makeTagTextInput(inputId, placeholder) {
-  // シンプルなテキスト入力。タグチップがあればdatalist候補に出す
-  const datalistId = inputId + '-dl';
-  let opts = tags.map(t=>`<option value="${t}">`).join('');
-  return `
-    <div class="form-group">
-      <label>対象タグ（テキスト入力）</label>
-      <input type="text" id="${inputId}" placeholder="${placeholder||'例: ドラゴン'}"
-        list="${datalistId}" oninput="update()" autocomplete="off">
-      <datalist id="${datalistId}">${opts}</datalist>
-    </div>`;
-}
-
-// tags 変更時に datalist を更新
-function refreshAllDataLists() {
-  document.querySelectorAll('datalist[id$="-dl"]').forEach(dl => {
-    dl.innerHTML = tags.map(t=>`<option value="${t}">`).join('');
-  });
-}
-
-/* ─────────────────────────────
-   ABILITY GRID
-───────────────────────────── */
-function buildAbilityGrid() {
-  const grid = document.getElementById('abilityGrid');
-  grid.innerHTML = '';
-  STATIC_ABILITIES.forEach(ab => {
-    const el = document.createElement('div');
-    el.className = 'ability-item has-tip';
-    el.id = `ab-${ab.id}`;
-
-    let extraHtml = '';
-    if (ab.hasX) {
-      extraHtml += `<div class="form-group"><label>x の値</label>
-        <input type="number" id="abx-${ab.id}" value="1" min="1" max="9"
-          oninput="update()" onclick="event.stopPropagation()"></div>`;
-    }
-    if (ab.needsTag) {
-      // ★ テキスト入力 + datalist候補
-      const dlId = `abx-tag-${ab.id}-dl`;
-      extraHtml += `<div class="form-group" onclick="event.stopPropagation()">
-        <label>対象タグ（テキスト入力）</label>
-        <input type="text" id="abx-tag-${ab.id}" placeholder="例: ドラゴン"
-          list="${dlId}" oninput="update()" autocomplete="off">
-        <datalist id="${dlId}">${tags.map(t=>`<option value="${t}">`).join('')}</datalist>
-      </div>`;
-    }
-    if (extraHtml) extraHtml = `<div class="ability-extra" onclick="event.stopPropagation()">${extraHtml}</div>`;
-
-    el.innerHTML = `
-      <div class="ability-header">
-        <div><div class="aname">${ab.name}</div>
-        <div class="acost">+${ab.score}${ab.hasX?'×x':''}</div></div>
-      </div>
-      ${extraHtml}
-      <div class="ab-warn" id="ab-warn-${ab.id}"></div>
-      <div class="tip-bubble">${ab.tip}</div>
-    `;
-    el.addEventListener('click', ()=>toggleAbility(ab.id));
-    grid.appendChild(el);
-  });
-}
-
-function toggleAbility(id) {
-  document.getElementById(`ab-${id}`)?.classList.toggle('active');
-  update();
-}
-
-function getAbilityState(ab) {
-  const el = document.getElementById(`ab-${ab.id}`);
-  if (!el || !el.classList.contains('active')) return null;
-  const x   = ab.hasX   ? parseInt(document.getElementById(`abx-${ab.id}`)?.value||1) : 1;
-  const tag = ab.needsTag ? (document.getElementById(`abx-tag-${ab.id}`)?.value||'').trim() : '';
-  return { ...ab, x, tag };
-}
-
-/* ─────────────────────────────
-   TRIGGERED EFFECTS
-───────────────────────────── */
-function addTriggered() {
-  triggeredEffects.push({ id: triggerId++ });
-  renderTriggered(); update();
-}
-function removeTriggered(id) {
-  triggeredEffects = triggeredEffects.filter(t=>t.id!==id);
-  renderTriggered(); update();
-}
-
-function renderTriggered() {
-  const list = document.getElementById('triggeredList');
-  list.innerHTML = '';
-  triggeredEffects.forEach(t => {
-    const el = document.createElement('div');
-    el.className = 'triggered-item';
-    el.id = `ti-${t.id}`;
-    el.innerHTML = `
-      <button class="remove-btn" onclick="removeTriggered(${t.id})">✕</button>
-      <div class="ti-grid">
-        <div class="form-group"><label>トリガー</label>
-          <select id="ti-trigger-${t.id}" onchange="refreshPreview(${t.id});update()">
-            ${TRIGGERS.map(tr=>`<option value="${tr.id}">${tr.name}</option>`).join('')}
-          </select>
-        </div>
-        <div class="form-group"><label>アクション</label>
-          <select id="ti-action-${t.id}" onchange="updateParams(${t.id})">
-            ${ACTIONS.map(a=>`<option value="${a.id}">${a.name}</option>`).join('')}
-          </select>
-        </div>
-      </div>
-      <div class="ti-params hidden" id="ti-params-${t.id}"></div>
-      <div class="ti-tag-row hidden" id="ti-tag-row-${t.id}"></div>
-      <div class="ti-preview" id="ti-prev-${t.id}"></div>
-      <div class="ti-warn" id="ti-warn-${t.id}"></div>
-    `;
-    list.appendChild(el);
-    updateParams(t.id, true);
-  });
-}
-
-function updateParams(id, init) {
-  const actionId = document.getElementById(`ti-action-${id}`)?.value;
-  const action   = ACTIONS.find(a=>a.id===actionId);
-  const paramsEl = document.getElementById(`ti-params-${id}`);
-  const tagRow   = document.getElementById(`ti-tag-row-${id}`);
-  if (!action||!paramsEl) return;
-
-  // numeric params
-  if (action.params.length===0) {
-    paramsEl.classList.add('hidden'); paramsEl.innerHTML='';
-  } else {
-    paramsEl.classList.remove('hidden');
-    paramsEl.innerHTML = action.params.map(p=>`
-      <div class="form-group"><label>パラメータ ${p.toUpperCase()}</label>
-        <input type="number" id="ti-param-${p}-${id}" value="1" min="1" max="99"
-          oninput="refreshPreview(${id});update()"></div>`).join('');
-  }
-
-  // ★ タグ自由入力（テキストボックス + datalist）
-  if (tagRow) {
-    if (action.needsTag) {
-      tagRow.classList.remove('hidden');
-      const dlId = `ti-tag-dl-${id}`;
-      tagRow.innerHTML = `<div class="form-group">
-        <label>対象タグ（テキスト入力）</label>
-        <input type="text" id="ti-tag-${id}" placeholder="例: ドラゴン"
-          list="${dlId}" oninput="refreshPreview(${id});update()" autocomplete="off">
-        <datalist id="${dlId}">${tags.map(t=>`<option value="${t}">`).join('')}</datalist>
-      </div>`;
-    } else {
-      tagRow.classList.add('hidden'); tagRow.innerHTML='';
-    }
-  }
-
-  refreshPreview(id);
-  if (!init) update();
-}
-
-function refreshPreview(id) {
-  const trigId  = document.getElementById(`ti-trigger-${id}`)?.value;
-  const trigger = TRIGGERS.find(t=>t.id===trigId);
-  const actionId= document.getElementById(`ti-action-${id}`)?.value;
-  const action  = ACTIONS.find(a=>a.id===actionId);
-  const el      = document.getElementById(`ti-prev-${id}`);
-  if (!el||!trigger||!action) return;
-  const x   = parseInt(document.getElementById(`ti-param-x-${id}`)?.value||1);
-  const y   = parseInt(document.getElementById(`ti-param-y-${id}`)?.value||1);
-  const tag = (document.getElementById(`ti-tag-${id}`)?.value||'').trim();
-  const txt = action.params.includes('y') ? action.textFn(x,y,tag)
-    : action.params.includes('x') ? action.textFn(x,y,tag)
-    : action.textFn(x,y,tag);
-  const warnPart = action.needsTag && !tag ? ' ⚠ タグを入力してください' : '';
-  el.textContent = `→ ${trigger.detail}${txt}。${warnPart}`;
-}
-
-function getTriggeredScore() {
-  let total=0;
-  triggeredEffects.forEach(t=>{
-    const action=ACTIONS.find(a=>a.id===document.getElementById(`ti-action-${t.id}`)?.value);
-    if (!action) return;
-    const x=parseInt(document.getElementById(`ti-param-x-${t.id}`)?.value||1);
-    const y=parseInt(document.getElementById(`ti-param-y-${t.id}`)?.value||1);
-    if (action.id==='deploy') total+=action.score*x*y;
-    else if (action.params.includes('x')) total+=action.score*x;
-    else total+=action.score;
-  });
-  return total;
-}
-
-/* ─────────────────────────────
-   CONDITIONS
-───────────────────────────── */
-function addCondition() {
-  conditions.push({ id: condId++ });
-  renderConditions(); update();
-}
-function removeCondition(id) {
-  conditions=conditions.filter(c=>c.id!==id);
-  renderConditions(); update();
-}
-function renderConditions() {
-  const list=document.getElementById('conditionsList');
-  list.innerHTML='';
-  conditions.forEach(c=>{
-    const el=document.createElement('div');
-    el.id=`cond-${c.id}`;
-    el.style.cssText='display:grid;grid-template-columns:1fr 1fr auto;gap:.4rem;align-items:end;margin-bottom:.5rem';
-    el.innerHTML=`
-      <div class="form-group"><label>条件タイプ</label>
-        <select id="cond-type-${c.id}" onchange="updateCondUI(${c.id})">
-          ${COND_TYPES.map(ct=>`<option value="${ct.id}">${ct.name}</option>`).join('')}
-        </select>
-      </div>
-      <div class="form-group" id="cond-tag-wrap-${c.id}">
-        <label>対象タグ</label>
-        <input type="text" id="cond-tag-${c.id}" placeholder="例: ドラゴン"
-          list="cond-tag-dl-${c.id}" oninput="update()" autocomplete="off">
-        <datalist id="cond-tag-dl-${c.id}">${tags.map(t=>`<option value="${t}">`).join('')}</datalist>
-      </div>
-      <div class="form-group"><label>閾値 n</label>
-        <input type="number" id="cond-n-${c.id}" value="1" min="1" max="99" oninput="update()">
-      </div>
-      <button class="remove-btn" style="position:static" onclick="removeCondition(${c.id})">✕</button>
-    `;
-    list.appendChild(el);
-    updateCondUI(c.id,true);
-  });
-}
-function updateCondUI(id,init) {
-  const type=document.getElementById(`cond-type-${id}`)?.value;
-  const ct=COND_TYPES.find(x=>x.id===type);
-  const wrap=document.getElementById(`cond-tag-wrap-${id}`);
-  if (wrap) wrap.style.display=ct?.needsTag?'':'none';
-  if (!init) update();
-}
-function buildConditionsArray() {
-  return conditions.map(c=>{
-    const type=document.getElementById(`cond-type-${c.id}`)?.value||'tagCount';
-    const tag=(document.getElementById(`cond-tag-${c.id}`)?.value||'').trim();
-    const n=parseInt(document.getElementById(`cond-n-${c.id}`)?.value||1);
-    const ct=COND_TYPES.find(x=>x.id===type);
-    return { type, tag:ct?.needsTag?tag:undefined, n, text:ct?.template(tag,n)||'' };
-  });
-}
-
-/* ─────────────────────────────
-   EFFECT DESCRIPTION
-───────────────────────────── */
-function buildEffectDescription(name,atk,hp,cost,staticAbilities,triggers,condArr) {
-  const L=[];
-  L.push(`【${name||'カード名未設定'}】`);
-  L.push(`ATK: ${atk}  /  HP: ${hp}  /  Cost: ${cost}`);
-  if (staticAbilities.length>0) {
-    L.push(''); L.push('＜常在能力＞');
-    staticAbilities.forEach(ab=>L.push(ab.textFn(ab.x,ab.tag)));
-  }
-  if (triggers.length>0) {
-    L.push(''); L.push('＜誘発能力＞');
-    triggers.forEach(t=>{
-      const trigObj=TRIGGERS.find(tr=>tr.id===document.getElementById(`ti-trigger-${t.id}`)?.value);
-      const action=ACTIONS.find(a=>a.id===document.getElementById(`ti-action-${t.id}`)?.value);
-      if (!trigObj||!action) return;
-      const x=parseInt(document.getElementById(`ti-param-x-${t.id}`)?.value||1);
-      const y=parseInt(document.getElementById(`ti-param-y-${t.id}`)?.value||1);
-      const tag=(document.getElementById(`ti-tag-${t.id}`)?.value||'').trim();
-      const txt=action.params.includes('y')?action.textFn(x,y,tag)
-        :action.params.includes('x')?action.textFn(x,y,tag):action.textFn(x,y,tag);
-      L.push(`【${trigObj.name}】${trigObj.detail}${txt}。`);
+/* ===== 危険フラグ ===== */
+function flags(){
+  const f=[];
+  card.effects.forEach((ef,i)=>{
+    ef.actions.forEach(a=>{
+      if(a.v==='PayLife'||a.v==='SelfDestroy'||a.v==='DiscardOwn'||a.v==='Sacrifice')
+        f.push({t:'info',m:`効果${i+1}: コスト(${A(a.v).jp.replace('コスト:','')})を払う＝割引。シナジーの起点`});
+      if((a.v==='Destroy'||a.v==='Damage')&&a.target==='EnemyAll')
+        f.push({t:'bad',m:`効果${i+1}: 全体${a.v==='Destroy'?'破壊':'ダメージ'}。横展開メタの要だが単発で盤面消滅、ENとトリガーを絞る`});
+      if(a.v==='TakeControl')f.push({t:'warn',m:`効果${i+1}: コントロール奪取は実質2枚分。査定激重・タイミング厳しく`});
+      if((ef.trigger==='OnTurnStart'||ef.trigger==='OnTurnEnd')&&(a.v==='Draw'||a.v==='GainEN'))
+        f.push({t:'warn',m:`効果${i+1}: 毎ターンのリソース増加。放置で雪だるま式`});
     });
-  }
-  if (condArr.length>0) { L.push(''); L.push('＜発動条件＞'); condArr.forEach(c=>L.push(`・${c.text}`)); }
-  const flavor=document.getElementById('flavorText')?.value?.trim();
-  if (flavor) { L.push(''); L.push(`「${flavor}」`); }
-  return L.join('\n');
-}
-
-/* ─────────────────────────────
-   MAIN UPDATE
-───────────────────────────── */
-function update() {
-  // datalist を最新タグで更新
-  refreshAllDataLists();
-
-  const name=document.getElementById('cardName')?.value||'';
-  const atk=parseInt(document.getElementById('atkVal')?.value||0);
-  const hp=parseInt(document.getElementById('hpVal')?.value||1);
-  const type=document.getElementById('cardType')?.value||'Monster';
-  const civ=document.getElementById('civType')?.value||'None';
-
-  const baseCost=Math.floor((atk+hp)/4);
-  let staticScore=0; const activeStatic=[];
-  STATIC_ABILITIES.forEach(ab=>{
-    const s=getAbilityState(ab);
-    if (s) { staticScore+=ab.hasX?ab.score*s.x:ab.score; activeStatic.push(s); }
   });
-  const trigScore=getTriggeredScore();
-  const finalCost=Math.max(1,Math.min(10,Math.floor(baseCost+staticScore+trigScore)));
-  const condArr=buildConditionsArray();
-  const effectText=buildEffectDescription(name,atk,hp,finalCost,activeStatic,triggeredEffects,condArr);
-
-  document.getElementById('baseCostVal').textContent=baseCost;
-  document.getElementById('staticScore').textContent=`+${staticScore.toFixed(1)}`;
-  document.getElementById('triggerScore').textContent=`+${trigScore.toFixed(1)}`;
-  document.getElementById('finalCostVal').textContent=finalCost;
-  document.getElementById('previewName').textContent=name||'名称未設定';
-  document.getElementById('previewCost').textContent=finalCost;
-  document.getElementById('previewAtk').textContent=atk;
-  document.getElementById('previewHp').textContent=hp;
-  document.getElementById('previewBase').textContent=baseCost;
-  document.getElementById('previewType').textContent=`${type} / ${civ}`;
-  document.getElementById('previewIcon').textContent=civIcons[civ]||'⚔️';
-  document.getElementById('previewText').textContent=effectText;
-  document.getElementById('previewTags').innerHTML=tags.map(t=>`<span class="cp-tag">${t}</span>`).join('');
-  triggeredEffects.forEach(t=>refreshPreview(t.id));
-}
-
-/* ─────────────────────────────
-   TRIGGER MAP  (UI id → C# enum string)
-───────────────────────────── */
-const TRIGGER_MAP = {
-  summon:  'OnSummon',
-  destroy: 'OnDeath',
-  attack:  'OnAttack',
-  targeted:'OnDefend',
-  phase:   'OnTurnStart',
-  damaged: 'OnDamageTaken',
-  kill:    'OnDamageDealt',
-  ally:    'OnSummon',    // 最近似: 仕様に対応triggerなし→OnSummon
-  enemy:   'OnSummon',    // 同上
-  system:  'OnTurnStart', // 同上
-};
-
-/* ─────────────────────────────
-   BUILD JSON (single card) — エンジニア仕様準拠
-───────────────────────────── */
-function buildJSON() {
-  const name = document.getElementById('cardName')?.value || '名称未設定';
-  const atk  = parseInt(document.getElementById('atkVal')?.value || 0);
-  const hp   = parseInt(document.getElementById('hpVal')?.value  || 1);
-  const type = document.getElementById('cardType')?.value || 'Monster';
-  const civ  = document.getElementById('civType')?.value  || 'None';
-
-  const baseCost = Math.floor((atk + hp) / 4);
-  let staticScore = 0;
-  const activeStatic = [];
-  STATIC_ABILITIES.forEach(ab => {
-    const s = getAbilityState(ab);
-    if (s) { staticScore += ab.hasX ? ab.score * s.x : ab.score; activeStatic.push(s); }
+  card.conditions.forEach((cd,i)=>{const c=C(cd.v);
+    if(c.kind==='inst')f.push({t:'warn',m:`条件「${c.jp}」は瞬間型＝自傷等で自分で踏める。割引は小さめ＋プールでの踏みやすさを要レビュー`});
+    if(c.kind==='enemy')f.push({t:'info',m:`条件「${c.jp}」は相手依存＝踏み倒せない＝割引大。逆転条件として健全`});
   });
-  const trigScore  = getTriggeredScore();
-  const finalCost  = Math.max(1, Math.min(10, Math.floor(baseCost + staticScore + trigScore)));
-  const condArr    = buildConditionsArray();
-  const effectText = buildEffectDescription(name, atk, hp, finalCost, activeStatic, triggeredEffects, condArr);
-
-  /* ── civilizations (配列。None は除外) ── */
-  const civilizations = civ === 'None' ? [] : [civ];
-
-  /* ── keywords: 前衛があれば "Vanguard" を追加 ── */
-  const keywords = [];
-  if (activeStatic.find(ab => ab.id === 'vanguard')) keywords.push('Vanguard');
-
-  /* ── effects（トリガー型）→ エンジニア仕様フォーマット ── */
-  const effects = triggeredEffects.map(t => {
-    const uiTriggerId = document.getElementById(`ti-trigger-${t.id}`)?.value;
-    const action      = ACTIONS.find(a => a.id === document.getElementById(`ti-action-${t.id}`)?.value);
-    if (!action) return null;
-
-    const triggerKey = TRIGGER_MAP[uiTriggerId] || 'OnSummon';
-    const x   = parseInt(document.getElementById(`ti-param-x-${t.id}`)?.value || 1);
-    const y   = parseInt(document.getElementById(`ti-param-y-${t.id}`)?.value || 1);
-    const tag = (document.getElementById(`ti-tag-${t.id}`)?.value || '').trim() || null;
-
-    // Conditions from global conditions panel → convert to spec tree
-    const conditionTree = buildSpecConditionTree(condArr);
-
-    // Action → spec action object
-    const specAction = convertActionToSpec(action, x, y, tag);
-    if (!specAction) return null;
-
-    return {
-      trigger: triggerKey,
-      conditions: conditionTree,
-      actions: [specAction]
-    };
-  }).filter(Boolean);
-
-  /* ── continuousEffects（永続効果）→ エンジニア仕様フォーマット ── */
-  const continuousEffects = [];
-
-  activeStatic.forEach(ab => {
-    // 前衛は keywords に出したので continuousEffects にも Vanguard modifier として追加
-    if (ab.id === 'vanguard') {
-      continuousEffects.push({
-        conditions: {},
-        modifiers: [{ type: 'Vanguard' }]
-      });
-      return;
-    }
-
-    // stat modifier 系
-    const mod = convertAbilityToModifier(ab);
-    if (mod) {
-      continuousEffects.push({ conditions: {}, modifiers: [mod] });
-    }
-  });
-
-  return {
-    cardId: generateUUID(),
-    name,
-    civilizations,
-    type,
-    cost: { type: 'EN', value: finalCost },
-    stats: { attack: atk, defense: hp },  // HP = defense
-    keywords,
-    tags: [...tags],
-    effectDescription: effectText,
-    effects,
-    continuousEffects
-  };
+  if(card.type!=='Spell'&&card.atk>=8)f.push({t:'warn',m:`高ATK。除去・必殺(デッドリー)で咎められるか要確認`});
+  return f;
 }
 
-/* ─────────────────────────────
-   HELPER: conditions panel → spec condition tree
-───────────────────────────── */
-function buildSpecConditionTree(condArr) {
-  if (!condArr || condArr.length === 0) return {};
-  const items = condArr.map(c => {
-    if (c.type === 'tagCount') {
-      return { type: 'FieldCount', target: 'Ally', op: '>=', value: c.n };
-    }
-    if (c.type === 'hpBelow') {
-      return { type: 'HP', target: 'Self', op: '<=', value: c.n };
-    }
-    if (c.type === 'costBelow') {
-      return { type: 'HandSize', op: '<=', value: c.n };
-    }
-    return null;
-  }).filter(Boolean);
-
-  if (items.length === 0) return {};
-  if (items.length === 1) return items[0];
-  return { type: 'AND', items };
+/* ===== JSON出力（v4/v5正本スキーマ。効果処理はエンジニア側） ===== */
+function toJSON(){
+  const o={cardId:card.id,name:card.name||'名称未設定',civilizations:card.civs.slice(),type:card.type,
+    cost:{type:'EN',value:finalCost()},tags:card.tags.slice()};
+  if(card.type!=='Spell')o.stats={attack:card.type==='Object'?0:card.atk,defense:card.hp};
+  o.effectDescription=`【${card.name||'名称未設定'}】`+(card.type!=='Spell'?` ATK:${o.stats.attack} / HP:${card.hp}`:'')+` (Cost:${o.cost.value})`+(fullText()?'\n\n'+fullText():'');
+  o.effects=card.effects.map(ef=>({trigger:ef.trigger,conditions:{},
+    actions:ef.actions.map(a=>{const def=A(a.v),act={type:a.v};if(a.target)act.target=a.target;
+      if(def.cnt)act.count=a.count||1;if(def.val)act.value=a.value||0;return act;})}));
+  o.continuousEffects=card.keywords.map(k=>({conditions:{},modifiers:[K(k.v).x?{type:k.v,value:k.value||1}:{type:k.v}]}));
+  o.conditions=card.conditions.map(cd=>{const c=C(cd.v),co={type:cd.v};if(c.x)co.value=cd.value||1;return co;});
+  return o;
 }
 
-/* ─────────────────────────────
-   HELPER: UI action → spec action object
-───────────────────────────── */
-function convertActionToSpec(action, x, y, tag) {
-  switch (action.id) {
-    case 'damage':
-    case 'randDamage':
-      return { type: 'Damage', target: 'Enemy', selection: action.id === 'randDamage' ? 'Random' : 'PlayerChoice', count: 1, value: x };
-    case 'shieldBreak':
-      // シールドはEnemyPlayerへのダメージとして表現
-      return { type: 'Damage', target: 'EnemyPlayer', value: x };
-    case 'shieldAdd':
-      return { type: 'Heal', target: 'Self', value: x };
-    case 'destroyAct':
-      return { type: 'Destroy', target: 'Enemy', selection: 'PlayerChoice', count: 1 };
-    case 'buff':
-      return { type: 'Buff', target: 'Self', stat: 'attack', value: x };
-    case 'draw':
-      return { type: 'Draw', count: x };
-    case 'enBoost':
-      return { type: 'Draw', count: x }; // EN加速 → Draw で近似
-    case 'enReduce':
-      return { type: 'Debuff', target: 'Enemy', stat: 'attack', selection: 'Random', count: 1, value: x };
-    case 'deploy':
-      return { type: 'Summon', target: 'Ally', selection: 'CheapestFromHand' };
-    case 'recover':
-      return { type: 'Draw', count: x }; // 回収 → Draw で近似
-    case 'bounce':
-      return { type: 'Destroy', target: 'Enemy', selection: 'PlayerChoice', count: 1 };
-    case 'disable':
-      return { type: 'Debuff', target: 'Enemy', stat: 'attack', selection: 'PlayerChoice', count: 1, value: x * 100 };
-    case 'reattack':
-      return { type: 'Buff', target: 'Self', stat: 'attack', value: 0 }; // 再攻撃は仕様外→Buff 0で仮置き
-    case 'search':
-      return { type: 'Draw', count: 1 }; // サーチ → Draw 1枚で近似
-    case 'tagGrant':
-      return { type: 'Buff', target: 'Ally', stat: 'attack', value: 0 }; // タグ付与は仕様外→Buff 0で仮置き
-    default:
-      return { type: 'Draw', count: 1 };
-  }
+/* ===== 描画 ===== */
+function render(){
+  const cv=getComputedStyle(document.documentElement).getPropertyValue('--'+(card.civs[0]?card.civs[0].toLowerCase():'')).trim()||'#666';
+  const c=$('#card');c.style.setProperty('--cv',cv);
+  $('#c-nm').textContent=card.name||'無名のオリカ';
+  $('#c-cost').textContent=finalCost();
+  $('#c-meta').textContent=(card.civs.map(x=>CIVJP[x]).join('・')||'無')+' / '+(card.type==='Spell'?'スペル':card.type==='Object'?'オブジェクト':'モンスター')+(card.tags.length?' ['+card.tags.join(',')+']':'');
+  $('#c-kws').innerHTML=card.keywords.map(k=>{const d=K(k.v);return `<span>${d.jp}${d.x?k.value:''}</span>`;}).join('');
+  $('#c-txt').textContent=card.effects.length||card.keywords.length||card.conditions.length?fullText():'効果なし（バニラ）';
+  $('#c-st').style.display=card.type==='Spell'?'none':'flex';
+  $('#c-atk').textContent=card.type==='Object'?0:card.atk;$('#c-hp').textContent=card.hp;
+  $('#e-cost').textContent=finalCost();$('#e-cp').textContent=score().toFixed(1);
+  const fl=flags();$('#flags').innerHTML=fl.length?fl.map(x=>`<div class="flag ${x.t}">${x.m}</div>`).join(''):'<div class="flag ok">目立った危険フラグなし</div>';
+  $('#jsonout').textContent=JSON.stringify(toJSON(),null,2);
+  // 各効果のインラインプレビュー行を最新化
+  $$('#efflist .eff').forEach((box,i)=>{const ef=card.effects[i];const pl=box.querySelector('.prev-line');
+    if(ef&&pl)pl.textContent=ef.actions.map(a=>actText(ef,a)).join(' → ');});
 }
 
-/* ─────────────────────────────
-   HELPER: static ability → continuousEffect modifier
-───────────────────────────── */
-function convertAbilityToModifier(ab) {
-  switch (ab.id) {
-    case 'regen':
-      return { type: 'StatModifier', stat: 'defense', target: 'Self', value: ab.x * 5 };
-    case 'guard':
-      return { type: 'StatModifier', stat: 'defense', target: 'Self', value: ab.x * 10 };
-    case 'amplify':
-      return { type: 'StatModifier', stat: 'attack', target: 'Self', value: 20 };
-    case 'majesty':
-      return { type: 'StatModifier', stat: 'attack', target: 'AllEnemies', value: -50 };
-    case 'jaki':
-      return { type: 'StatModifier', stat: 'defense', target: 'AllEnemies', value: -(ab.x * 10) };
-    case 'resonance':
-      return { type: 'StatModifier', stat: 'attack', target: 'Self', value: ab.x * 10 };
-    case 'pierce':
-      return { type: 'StatModifier', stat: 'attack', target: 'Self', value: 0 }; // 貫通は仕様外
-    case 'stealth':
-    case 'jinso':
-    case 'transcend':
-    case 'immovable':
-    case 'randReduce':
-    case 'chainLogic':
-      return { type: 'StatModifier', stat: 'defense', target: 'Self', value: 0 }; // 仕様外→0値で記録
-    case 'vanguard':
-      return null; // keywords + Vanguard modifier は別で処理済み
-    default:
-      return null;
-  }
-}
+/* ===== 入力配線 ===== */
+$('#seg-type').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+  $$('#seg-type button').forEach(x=>x.classList.toggle('on',x===b));card.type=b.dataset.t;
+  $$('.mon').forEach(x=>x.style.display=card.type==='Spell'?'none':'');
+  // オブジェクトはATKを持たない＝ATK欄を無効化し0固定
+  const af=$('#f-atk');af.disabled=card.type==='Object';
+  if(card.type==='Object'){card.atk=0;af.value=0;}else if(af.disabled===false&&+af.value===0&&card.atk===0){af.value=3;card.atk=3;}
+  card.effects.forEach(ef=>{if(!validTrigs().find(t=>t.v===ef.trigger))ef.trigger=defaultTrig();ef.actions.forEach(a=>fixAct(ef,a));});
+  if(card.type==='Spell')card.keywords=[];
+  if(card.type==='Object')card.keywords=card.keywords.filter(k=>!K(k.v).atk); // 攻撃KWを除去
+  buildKw();renderEff();render();});
+$('#seg-civ').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+  b.classList.toggle('on');card.civs=[...$$('#seg-civ button.on')].map(x=>x.dataset.c);render();});
+$('#f-name').addEventListener('input',e=>{card.name=e.target.value;render();});
+$('#f-atk').addEventListener('input',e=>{card.atk=+e.target.value||0;render();});
+$('#f-hp').addEventListener('input',e=>{card.hp=+e.target.value||0;render();});
+$('#f-tags').addEventListener('input',e=>{card.tags=e.target.value.split(',').map(s=>s.trim()).filter(Boolean);render();});
+$('#btn-reset').addEventListener('click',()=>{card={id:uuid(),name:'',type:'Monster',atk:3,hp:5,civs:[],tags:[],keywords:[],effects:[],conditions:[]};
+  $('#f-name').value='';$('#f-atk').value=3;$('#f-atk').disabled=false;$('#f-hp').value=5;$('#f-tags').value='';
+  $$('#seg-type button').forEach(b=>b.classList.toggle('on',b.dataset.t==='Monster'));
+  $$('#seg-civ button').forEach(b=>b.classList.remove('on'));$$('.mon').forEach(x=>x.style.display='');
+  buildKw();renderEff();renderCond();render();});
+$('#btn-dl').addEventListener('click',()=>{const blob=new Blob([JSON.stringify(toJSON(),null,2)],{type:'application/json'});
+  const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=card.id+'.json';a.click();URL.revokeObjectURL(u);});
+$('#j-copy').addEventListener('click',()=>{navigator.clipboard?.writeText(JSON.stringify(toJSON(),null,2));
+  $('#j-copy').textContent='コピー済み';setTimeout(()=>$('#j-copy').textContent='コピー',1200);});
 
-/* ─────────────────────────────
-   UUID
-───────────────────────────── */
-function generateUUID() {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{
-    const r=Math.random()*16|0; return(c==='x'?r:(r&0x3|0x8)).toString(16);
-  });
-}
-
-/* ─────────────────────────────
-   SINGLE CARD EXPORT
-───────────────────────────── */
-let jsonVisible=false;
-function toggleJson(){
-  const el=document.getElementById('jsonPreview');
-  jsonVisible=!jsonVisible;
-  if(jsonVisible){el.textContent=JSON.stringify(buildJSON(),null,2);el.classList.add('visible');}
-  else el.classList.remove('visible');
-}
-function exportSingleJson(){
-  const j=buildJSON();
-  const blob=new Blob([JSON.stringify(j,null,2)],{type:'application/json'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob); a.download=`${j.cardId}.json`;
-  a.click(); URL.revokeObjectURL(a.href);
-}
-
-/* ─────────────────────────────
-   DECK MANAGEMENT
-───────────────────────────── */
-function addToDeck() {
-  const j = buildJSON();
-  const name = j.name;
-  if (!name || name === '名称未設定') {
-    alert('カード名を入力してください'); return;
-  }
-  const total = deckCards.reduce((s,c)=>s+c.count,0);
-  if (total >= 40) {
-    alert('デッキが満杯です（40枚）'); return;
-  }
-  // 同名カードがあればcountを増やす
-  const existing = deckCards.find(c=>c.cardJson.name===j.name);
-  if (existing) {
-    if (existing.count>=4) { alert('同名カードは4枚まで'); return; }
-    existing.count++;
-    existing.cardJson = j; // JSONは最新で上書き
-  } else {
-    deckCards.push({ cardJson: j, count: 1 });
-  }
-  updateDeckTabCount();
-  renderDeck();
-  // フィードバック
-  const btn = event.target;
-  const orig = btn.textContent;
-  btn.textContent = `✓ ${name} をデッキに追加`;
-  btn.style.background = 'rgba(74,222,128,.2)';
-  setTimeout(()=>{ btn.textContent=orig; btn.style.background=''; }, 1800);
-}
-
-function updateDeckTabCount() {
-  const total = deckCards.reduce((s,c)=>s+c.count,0);
-  document.getElementById('deckCount').textContent = total;
-}
-
-function changeCount(idx, delta) {
-  deckCards[idx].count = Math.max(0, Math.min(4, deckCards[idx].count + delta));
-  if (deckCards[idx].count === 0) deckCards.splice(idx, 1);
-  updateDeckTabCount();
-  renderDeck();
-  updateDeckPreview();
-}
-
-function clearDeck() {
-  if (!confirm('デッキをすべてクリアしますか？')) return;
-  deckCards = [];
-  updateDeckTabCount();
-  renderDeck();
-}
-
-function renderDeck() {
-  const list = document.getElementById('deckCardList');
-  const total = deckCards.reduce((s,c)=>s+c.count,0);
-  const types = deckCards.length;
-  const remain = 40 - total;
-
-  document.getElementById('deckTotal').textContent = total;
-  document.getElementById('deckTotal').className = `ds-val ${total>40?'warn':total===40?'ok':''}`;
-  document.getElementById('deckTypes').textContent = types;
-  document.getElementById('deckRemain').textContent = remain;
-  document.getElementById('deckRemain').className = `ds-val ${remain<0?'warn':remain===0?'ok':''}`;
-
-  if (deckCards.length === 0) {
-    list.innerHTML='<div class="empty-state"><div class="es-icon">🃏</div>カード作成タブでカードを作り、<br>「デッキに追加」ボタンを押してください</div>';
-    return;
-  }
-
-  list.innerHTML='<div class="deck-card-list">' + deckCards.map((c,i)=>{
-    const j = c.cardJson;
-    const civIcon = civIcons[j.civilization]||'⚔️';
-    return `<div class="deck-card-row">
-      <div>
-        <div class="dcr-name">${civIcon} ${j.name}</div>
-        <div class="dcr-sub">ATK:${j.stats.attack} HP:${j.stats.hp} / EN:${j.cost.value} / ${j.type}</div>
-      </div>
-      <div class="dcr-badge">×${c.count}</div>
-      <div class="count-ctrl">
-        <button class="count-btn" onclick="changeCount(${i},-1)">−</button>
-        <span class="count-num">${c.count}</span>
-        <button class="count-btn" onclick="changeCount(${i},+1)">＋</button>
-      </div>
-    </div>`;
-  }).join('') + '</div>';
-
-  updateDeckPreview();
-}
-
-/* ─────────────────────────────
-   DECK JSON BUILD
-───────────────────────────── */
-function buildDeckJSON() {
-  const now = new Date().toISOString().replace('Z','+09:00').replace(/\.\d{3}/,'');
-  return {
-    playerId: document.getElementById('playerId')?.value?.trim() || 'player_001',
-    deckId: generateUUID(),
-    name: document.getElementById('deckName')?.value?.trim() || 'サンプルデッキ',
-    partner: { cardId: null },
-    main: deckCards.map(c=>({ cardId: c.cardJson.cardId, count: c.count })),
-    createdAt: now,
-    updatedAt: now
-  };
-}
-
-let deckJsonVisible=false;
-function toggleDeckJson(){
-  const el=document.getElementById('deckJsonPreview');
-  deckJsonVisible=!deckJsonVisible;
-  if(deckJsonVisible){el.textContent=JSON.stringify(buildDeckJSON(),null,2);el.classList.add('visible');}
-  else el.classList.remove('visible');
-}
-function updateDeckPreview(){
-  const el=document.getElementById('deckJsonPreview');
-  if(deckJsonVisible) el.textContent=JSON.stringify(buildDeckJSON(),null,2);
-}
-
-/* ─────────────────────────────
-   ZIP EXPORT
-───────────────────────────── */
-async function exportDeckZip() {
-  if (deckCards.length===0) { alert('デッキにカードがありません'); return; }
-
-  const zip = new JSZip();
-  const deckName = (document.getElementById('deckName')?.value?.trim()||'deck').replace(/[^\w\-]/g,'_');
-
-  // フォルダ1: cards/ → カードJSON × 枚数分 (同じカードが複数枚なら _1 _2 で区別)
-  const cardsFolder = zip.folder('cards');
-  const nameCount={};
-  deckCards.forEach(c=>{
-    for (let i=0;i<c.count;i++) {
-      const safeName = c.cardJson.name.replace(/[^\w\u3040-\u9fff\-]/g,'_');
-      nameCount[safeName]=(nameCount[safeName]||0)+1;
-      const suffix = c.count>1 ? `_${nameCount[safeName]}` : '';
-      const fname = `${c.cardJson.cardId}${suffix}.json`;
-      cardsFolder.file(fname, JSON.stringify(c.cardJson, null, 2));
-    }
-  });
-
-  // フォルダ2: deck.json (ルート)
-  zip.file('deck.json', JSON.stringify(buildDeckJSON(), null, 2));
-
-  // README
-  const total = deckCards.reduce((s,c)=>s+c.count,0);
-  zip.file('README.txt',
-    `Orica Generator v4 Export\n` +
-    `Deck: ${document.getElementById('deckName')?.value||'サンプルデッキ'}\n` +
-    `Cards: ${total} / 40\n` +
-    `Types: ${deckCards.length}\n` +
-    `Generated: ${new Date().toLocaleString('ja-JP')}\n\n` +
-    `Structure:\n` +
-    `  cards/           → 各カードのJSONファイル（cardId.json）\n` +
-    `  deck.json        → デッキ構成ファイル\n`
-  );
-
-  const blob = await zip.generateAsync({type:'blob'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `${deckName}_export.zip`;
-  a.click(); URL.revokeObjectURL(a.href);
-}
-
-/* ─────────────────────────────
-   INIT
-───────────────────────────── */
-buildAbilityGrid();
-update();
+/* init */
+buildKw();renderEff();renderCond();render();
 </script>
-</body>
-</html>
